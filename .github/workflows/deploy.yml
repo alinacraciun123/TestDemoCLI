@@ -73,5 +73,5 @@ jobs:
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          Write-Host "Checking available test commands..."
+          Write-Host "Checking available test commands... to continue"
           & $CLI test --help
