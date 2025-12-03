@@ -18,7 +18,7 @@ env:
 jobs:
   build-and-deploy:
     runs-on: windows-latest
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -29,101 +29,98 @@ jobs:
           dotnet-version: '6.0.x'
 
       - name: Pack Project
+        shell: pwsh
         run: |
           Write-Host "=========================================="
           Write-Host "Packing UiPath Project"
           Write-Host "=========================================="
-          
-          .\Scripts\UiPathPack.ps1 "${{ env.PROJECT_PATH }}" `
-            -destination_folder ".\Output" `
-            -outputType "Process"
-          
+
+          # Full paths to avoid quoting issues
+          $projectFile = Join-Path $env:GITHUB_WORKSPACE $env:PROJECT_PATH
+          $outputFolder = Join-Path $env:GITHUB_WORKSPACE "Output"
+
+          # Call UiPath CLI via script
+          .\Scripts\UiPathPack.ps1 $projectFile -destination_folder $outputFolder -outputType Process
+
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Packing failed!"
             exit 1
           }
-          
-          $package = Get-ChildItem -Path ".\Output" -Filter "*.nupkg" | Select-Object -First 1
+
+          $package = Get-ChildItem -Path $outputFolder -Filter "*.nupkg" | Select-Object -First 1
           echo "PACKAGE_PATH=$($package.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "PACKAGE_NAME=$($package.Name)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          
+
           Write-Host "✓ Package created: $($package.Name)" -ForegroundColor Green
-        shell: pwsh
 
       - name: Deploy to Orchestrator
+        shell: pwsh
         run: |
           Write-Host "=========================================="
           Write-Host "Deploying to Orchestrator"
           Write-Host "=========================================="
-          
+
+          $appScope = "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
+
           .\Scripts\UiPathDeploy.ps1 `
             $env:PACKAGE_PATH `
-            ${{ env.ORCHESTRATOR_URL }} `
-            ${{ env.ORCHESTRATOR_TENANT }} `
-            -folder_organization_unit ${{ env.ORCHESTRATOR_FOLDER }} `
+            $env:ORCHESTRATOR_URL `
+            $env:ORCHESTRATOR_TENANT `
+            -folder_organization_unit $env:ORCHESTRATOR_FOLDER `
             -accountForApp accountForExternalApp `
             -applicationId ${{ secrets.APP_ID }} `
             -applicationSecret ${{ secrets.SECRET }} `
-            -applicationScope "OR.Execution OR.Folders OR.TestSets OR.TestSetExecutions OR.TestSetSchedules"
-          
+            -applicationScope $appScope
+
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Deployment failed!"
             exit 1
           }
-          
-          Write-Host "✓ Deployment successful: ${{ env.PACKAGE_NAME }}" -ForegroundColor Green
-        shell: pwsh
+
+          Write-Host "✓ Deployment successful: $env:PACKAGE_NAME" -ForegroundColor Green
 
   test:
     runs-on: windows-latest
     needs: build-and-deploy
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
       - name: Run Test Set
+        shell: pwsh
         run: |
           Write-Host "=========================================="
-          Write-Host "Executing Test Set: ${{ env.TEST_SET }}"
-          Write-Host "Test Manager Project: ${{ env.TEST_MANAGER_PROJECT }}"
+          Write-Host "Executing Test Set: $env:TEST_SET"
+          Write-Host "Test Manager Project: $env:TEST_MANAGER_PROJECT"
           Write-Host "=========================================="
-          
+
+          $appScope = "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
+
           .\Scripts\UiPathRunTests.ps1 `
-            -orchestratorUrl "${{ env.ORCHESTRATOR_URL }}" `
-            -orchestratorTenant "${{ env.ORCHESTRATOR_TENANT }}" `
-            -folderName "${{ env.ORCHESTRATOR_FOLDER }}" `
-            -testSet "${{ env.TEST_SET }}" `
-            -orchestratorApplicationId "${{ secrets.APP_ID }}" `
-            -orchestratorApplicationSecret "${{ secrets.SECRET }}" `
-            -orchestratorApplicationScope "OR.Execution OR.Folders OR.TestSets OR.TestSetExecutions OR.TestSetSchedules" `
-            -identityUrl "${{ env.IDENTITY_URL }}" `
-            -testResultsOutputPath ".\TestResults" `
+            -orchestratorUrl $env:ORCHESTRATOR_URL `
+            -orchestratorTenant $env:ORCHESTRATOR_TENANT `
+            -folderName $env:ORCHESTRATOR_FOLDER `
+            -testSet $env:TEST_SET `
+            -orchestratorApplicationId ${{ secrets.APP_ID }} `
+            -orchestratorApplicationSecret ${{ secrets.SECRET }} `
+            -orchestratorApplicationScope $appScope `
+            -identityUrl $env:IDENTITY_URL `
+            -testResultsOutputPath "$env:GITHUB_WORKSPACE\TestResults" `
             -timeout 3600
-          
+
           $exitCode = $LASTEXITCODE
-          
+
           Write-Host ""
           Write-Host "=========================================="
           if ($exitCode -eq 0) {
             Write-Host "✓ All tests passed successfully!" -ForegroundColor Green
-            Write-Host ""
-            Write-Host "View detailed results in Test Manager:" -ForegroundColor Cyan
-            Write-Host "  📊 Project: ${{ env.TEST_MANAGER_PROJECT }}" -ForegroundColor Cyan
-            Write-Host "  📋 Test Set: ${{ env.TEST_SET }}" -ForegroundColor Cyan
-            Write-Host "  🔗 URL: ${{ env.ORCHESTRATOR_URL }}" -ForegroundColor Cyan
           } else {
             Write-Host "✗ Tests failed!" -ForegroundColor Red
-            Write-Host ""
-            Write-Host "Check Test Manager for detailed failure information:" -ForegroundColor Yellow
-            Write-Host "  📊 Project: ${{ env.TEST_MANAGER_PROJECT }}" -ForegroundColor Yellow
-            Write-Host "  📋 Test Set: ${{ env.TEST_SET }}" -ForegroundColor Yellow
-            Write-Host "  🔗 URL: ${{ env.ORCHESTRATOR_URL }}" -ForegroundColor Yellow
           }
           Write-Host "=========================================="
-          
+
           exit $exitCode
-        shell: pwsh
 
       - name: Upload Test Results Artifact
         uses: actions/upload-artifact@v3
@@ -132,28 +129,3 @@ jobs:
           name: test-results
           path: ./TestResults/**/*
           retention-days: 30
-
-      - name: Test Results Summary
-        if: always()
-        run: |
-          Write-Host ""
-          Write-Host "================================================"
-          Write-Host "           TEST EXECUTION SUMMARY"
-          Write-Host "================================================"
-          Write-Host ""
-          Write-Host "✓ Test results recorded in Test Manager"
-          Write-Host ""
-          Write-Host "📍 Location:"
-          Write-Host "   Project: ${{ env.TEST_MANAGER_PROJECT }}"
-          Write-Host "   Test Set: ${{ env.TEST_SET }}"
-          Write-Host "   Folder: ${{ env.ORCHESTRATOR_FOLDER }}"
-          Write-Host ""
-          Write-Host "🔍 To view results:"
-          Write-Host "   1. Log in to UiPath Orchestrator"
-          Write-Host "   2. Navigate to Test Manager"
-          Write-Host "   3. Open project: ${{ env.TEST_MANAGER_PROJECT }}"
-          Write-Host "   4. Check latest execution of: ${{ env.TEST_SET }}"
-          Write-Host ""
-          Write-Host "📦 Local results also saved as GitHub artifacts"
-          Write-Host "================================================"
-        shell: pwsh
