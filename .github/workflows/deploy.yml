@@ -50,7 +50,7 @@ jobs:
               --output "$outDir" `
               --outputType Process `
               --autoVersion
-      # DEPLOY the .nupkg package
+      # DEPLOY the .nupkg package and UPDATE process
       - name: Deploy Package to Orchestrator
         shell: pwsh
         run: |
@@ -66,14 +66,15 @@ jobs:
               -S "$env:ORCH_SECRET" `
               --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
               --processName "TestDemoCli" `
-              --createProcess false `
+              --createProcess true `
+              --entryPointsPath "Main.xaml" `
               --organizationUnit "$env:ORCHESTRATOR_FOLDER"
-      # RUN TEST SET
-      - name: Run Test Set
+      # RUN TEST using Test Manager
+      - name: Run Test Set in Test Manager
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          & $CLI test run `
+          & $CLI testmanager run test `
               "$env:ORCHESTRATOR_URL" `
               "$env:ORCHESTRATOR_TENANT" `
               -A "$env:Orch_ACC_NAME" `
@@ -81,4 +82,6 @@ jobs:
               -S "$env:ORCH_SECRET" `
               --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
               --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
-              -s "$env:TEST_SET"
+              --project "$env:TEST_MANAGER_PROJECT" `
+              --testSet "$env:TEST_SET" `
+              --wait
