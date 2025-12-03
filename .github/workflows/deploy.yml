@@ -38,8 +38,8 @@ jobs:
           $projectFile = Join-Path $env:GITHUB_WORKSPACE $env:PROJECT_PATH
           $outputFolder = Join-Path $env:GITHUB_WORKSPACE "Output"
       
-          # Pass the project path inside single quotes to avoid double quoting
-          & .\Scripts\UiPathPack.ps1 "'$projectFile'" -destination_folder $outputFolder -outputType Process
+          # Call the existing script with & and pass variables directly, no quotes
+          & .\Scripts\UiPathPack.ps1 $projectFile -destination_folder $outputFolder -outputType Process
       
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Packing failed!"
