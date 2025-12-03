@@ -33,6 +33,11 @@ jobs:
     steps:
       - name: check out repo code
         uses: actions/checkout@v3
+      - name: Setup .NET 6 Runtime
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '6.0.x'
+          include-prerelease: false
       - name: Build nuget pkg
         shell: pwsh
         run: ${{github.workspace}}\Scripts\UiPathPack.ps1 ${{github.workspace}}\project.json -destination_folder ${{github.workspace}}\package -outputType Process
