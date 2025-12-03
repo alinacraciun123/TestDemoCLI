@@ -1,10 +1,8 @@
 name: UiPathRunTests
-
 on:
   push:
     branches:
       - main
-
 env:
   PROJECT_NAME: TestDemoCLI
   ORCHESTRATOR_URL: https://staging.uipath.com/
@@ -18,62 +16,47 @@ env:
   DOTNET_ROOT: C:\Program Files\dotnet
   ORCH_CLIENT_ID: ${{ secrets.APP_ID }}
   ORCH_SECRET: ${{ secrets.SECRET }}
-
 jobs:
   Build-Pack-Deploy-Test:
     runs-on: windows-latest
     steps:
-
       # Checkout code
       - name: Checkout Code
         uses: actions/checkout@v4
-
       - name: Print Working Directory
         run: |
           pwd
           ls
-
       # Download UiPath CLI
       - name: Download UiPath CLI
         shell: pwsh
         run: |
           $cli = "C:\uipathcli"
           New-Item -ItemType Directory -Force -Path $cli | Out-Null
-
           Write-Host "Downloading UiPath CLI from $env:CLI_URL ..."
           Invoke-WebRequest "$env:CLI_URL" -OutFile "$cli\cli.zip"
-
           Expand-Archive "$cli\cli.zip" -DestinationPath $cli -Force
-
           Write-Host "CLI extracted to: $cli"
-
       # PACK the automation project
       - name: Pack Project
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-
           $project = "$env:GITHUB_WORKSPACE\project.json"
           $outDir = "$env:GITHUB_WORKSPACE\package"
-
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-
           & $CLI package pack `
               "$project" `
               --output "$outDir" `
               --outputType Process `
               --autoVersion
-
       # DEPLOY the .nupkg package
       - name: Deploy Package to Orchestrator
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-
           $pkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg" | Select-Object -First 1
-
           Write-Host "Deploying package: $($pkg.FullName)"
-
           & $CLI package deploy `
               "$($pkg.FullName)" `
               "$env:ORCHESTRATOR_URL" `
@@ -83,17 +66,13 @@ jobs:
               -S "$env:ORCH_SECRET" `
               --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
               --processName "TestDemoCli" `
-              --packageVersion auto `
-              --createProcess false`
-              -o "$env:ORCHESTRATOR_FOLDER"
-
-
+              --createProcess false `
+              --organizationUnit "$env:ORCHESTRATOR_FOLDER"
       # RUN TEST SET
       - name: Run Test Set
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-
           & $CLI test run `
               "$env:ORCHESTRATOR_URL" `
               "$env:ORCHESTRATOR_TENANT" `
@@ -101,5 +80,5 @@ jobs:
               -I "$env:ORCH_CLIENT_ID" `
               -S "$env:ORCH_SECRET" `
               --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
-              -o "$env:ORCHESTRATOR_FOLDER" `
+              --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
               -s "$env:TEST_SET"
