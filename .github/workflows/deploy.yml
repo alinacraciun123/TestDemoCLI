@@ -74,7 +74,7 @@ jobs:
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          & $CLI testmanager run test `
+          & $CLI test execute `
               "$env:ORCHESTRATOR_URL" `
               "$env:ORCHESTRATOR_TENANT" `
               -A "$env:Orch_ACC_NAME" `
@@ -82,6 +82,6 @@ jobs:
               -S "$env:ORCH_SECRET" `
               --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
               --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
-              --project "$env:TEST_MANAGER_PROJECT" `
-              --testSet "$env:TEST_SET" `
+              --project_name "$env:TEST_MANAGER_PROJECT" `
+              --testset "$env:TEST_SET" `
               --wait
