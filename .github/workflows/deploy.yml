@@ -84,6 +84,7 @@ jobs:
               --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
               --processName "TestDemoCli" `
               --packageVersion auto `
+              --createProcess false`
               -o "$env:ORCHESTRATOR_FOLDER"
 
 
