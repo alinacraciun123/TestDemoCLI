@@ -82,7 +82,10 @@ jobs:
               -I "$env:ORCH_CLIENT_ID" `
               -S "$env:ORCH_SECRET" `
               --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
+              --processName "TestDemoCli" `
+              --packageVersion auto `
               -o "$env:ORCHESTRATOR_FOLDER"
+
 
       # RUN TEST SET
       - name: Run Test Set
