@@ -12,7 +12,7 @@ env:
   ORCHESTRATOR_FOLDER: express
   ORCHESTRATOR_TENANT: DefaultTenant
   Orch_ACC_NAME: uipatcvdtryn
-  CLI_URL: https://uipath.visualstudio.com/Public.Feeds/_artifacts/feed/UiPath-Official/NuGet/UiPath.CLI.Windows/overview/25.10.1-20251105-9
+  CLI_URL: https://uipath.visualstudio.com/Public.Feeds/_artifacts/feed/UiPath-Official/NuGet/UiPath.CLI.Windows/overview/24.12.9166.24491
   TEST_SET: Test_Set_TestDemoCli_Tests
   TEST_MANAGER_PROJECT: TestDemo
   ORCH_CLIENT_ID: ${{secrets.APP_ID}}
