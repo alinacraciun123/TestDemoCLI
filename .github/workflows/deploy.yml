@@ -7,12 +7,12 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_PATH: project.json
-  ORCHESTRATOR_URL: https://staging.uipath.com/uipatcvdtryn/DefaultTenant/orchestrator_
-  ORCHESTRATOR_FOLDER: express
-  ORCHESTRATOR_TENANT: DefaultTenant
-  TEST_SET: Test_Set_TestDemoCli_Tests
-  TEST_MANAGER_PROJECT: TestDemo
+  PROJECT_PATH: "project.json"
+  ORCHESTRATOR_URL: "https://staging.uipath.com/uipatcvdtryn/DefaultTenant/orchestrator_"
+  ORCHESTRATOR_FOLDER: "express"
+  ORCHESTRATOR_TENANT: "DefaultTenant"
+  TEST_SET: "Test_Set_TestDemoCli_Tests"
+  TEST_MANAGER_PROJECT: "TestDemo"
 
 jobs:
   build-and-deploy:
@@ -22,35 +22,44 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
+      - name: Print Working Directory
+        run: |
+          pwd
+          ls
+
       - name: Setup .NET 6.0
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: '6.0.x'
 
+      - name: Get UiPath CLI
+        run: |
+          $cliDir = "C:\uipathcli"
+          if (-Not (Test-Path $cliDir)) { New-Item -Path "C:\" -ItemType "directory" -Name "uipathcli" }
+          $nugetUrl = "https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/flat2/UiPath.CLI.Windows/23.2.8467.25277/UiPath.CLI.Windows.23.2.8467.25277.nupkg"
+          $zipPath = "C:\UiPath.CLI.Windows.23.2.8467.25277.zip"
+          Invoke-WebRequest $nugetUrl -OutFile $zipPath
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $cliDir
+
       - name: Pack Project
         shell: pwsh
         run: |
+          $workspace = $env:GITHUB_WORKSPACE
+          $outputDir = Join-Path $workspace "Output"
+          if (-Not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir }
+
           Write-Host "=========================================="
           Write-Host "Packing UiPath Project"
           Write-Host "=========================================="
-      
-          # Switch to repo root
-          Set-Location $env:GITHUB_WORKSPACE
-      
-          # Call script with simple relative path
-          & .\Scripts\UiPathPack.ps1 project.json -destination_folder ".\Output" -outputType Process
-      
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Packing failed!"
-            exit 1
-          }
-      
-          $package = Get-ChildItem -Path ".\Output" -Filter "*.nupkg" | Select-Object -First 1
+
+          & .\Scripts\UiPathPack.ps1 $env:PROJECT_PATH -destination_folder $outputDir -outputType Process
+          if ($LASTEXITCODE -ne 0) { Write-Error "Packing failed!"; exit 1 }
+
+          $package = Get-ChildItem -Path $outputDir -Filter "*.nupkg" | Select-Object -First 1
           echo "PACKAGE_PATH=$($package.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "PACKAGE_NAME=$($package.Name)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      
-          Write-Host "✓ Package created: $($package.Name)" -ForegroundColor Green
 
+          Write-Host "✓ Package created: $($package.Name)" -ForegroundColor Green
 
       - name: Deploy to Orchestrator
         shell: pwsh
@@ -59,22 +68,17 @@ jobs:
           Write-Host "Deploying to Orchestrator"
           Write-Host "=========================================="
 
-          $appScope = "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
-
           & .\Scripts\UiPathDeploy.ps1 `
-            $env:PACKAGE_PATH `
-            $env:ORCHESTRATOR_URL `
-            $env:ORCHESTRATOR_TENANT `
-            -folder_organization_unit $env:ORCHESTRATOR_FOLDER `
-            -accountForApp accountForExternalApp `
-            -applicationId ${{ secrets.APP_ID }} `
-            -applicationSecret ${{ secrets.SECRET }} `
-            -applicationScope $appScope
+              $env:PACKAGE_PATH `
+              $env:ORCHESTRATOR_URL `
+              $env:ORCHESTRATOR_TENANT `
+              -folder_organization_unit $env:ORCHESTRATOR_FOLDER `
+              -accountForApp accountForExternalApp `
+              -applicationId ${{ secrets.APP_ID }} `
+              -applicationSecret ${{ secrets.SECRET }} `
+              -applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users.Read"
 
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Deployment failed!"
-            exit 1
-          }
+          if ($LASTEXITCODE -ne 0) { Write-Error "Deployment failed!"; exit 1 }
 
           Write-Host "✓ Deployment successful: $env:PACKAGE_NAME" -ForegroundColor Green
 
@@ -94,64 +98,9 @@ jobs:
           Write-Host "Test Manager Project: $env:TEST_MANAGER_PROJECT"
           Write-Host "=========================================="
 
-          $appScope = "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
-
-          $testResultsPath = Join-Path $env:GITHUB_WORKSPACE "TestResults"
-
           & .\Scripts\UiPathRunTests.ps1 `
-            -orchestratorUrl $env:ORCHESTRATOR_URL `
-            -orchestratorTenant $env:ORCHESTRATOR_TENANT `
-            -folderName $env:ORCHESTRATOR_FOLDER `
-            -testSet $env:TEST_SET `
-            -orchestratorApplicationId ${{ secrets.APP_ID }} `
-            -orchestratorApplicationSecret ${{ secrets.SECRET }} `
-            -orchestratorApplicationScope $appScope `
-      
-            -testResultsOutputPath $testResultsPath `
-            -timeout 3600
-
-          $exitCode = $LASTEXITCODE
-
-          Write-Host ""
-          Write-Host "=========================================="
-          if ($exitCode -eq 0) {
-            Write-Host "✓ All tests passed successfully!" -ForegroundColor Green
-          } else {
-            Write-Host "✗ Tests failed!" -ForegroundColor Red
-          }
-          Write-Host "=========================================="
-
-          exit $exitCode
-
-      - name: Upload Test Results Artifact
-        uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: test-results
-          path: ./TestResults/**/*
-          retention-days: 30
-
-      - name: Test Results Summary
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "================================================"
-          Write-Host "           TEST EXECUTION SUMMARY"
-          Write-Host "================================================"
-          Write-Host ""
-          Write-Host "✓ Test results recorded in Test Manager"
-          Write-Host ""
-          Write-Host "📍 Location:"
-          Write-Host "   Project: $env:TEST_MANAGER_PROJECT"
-          Write-Host "   Test Set: $env:TEST_SET"
-          Write-Host "   Folder: $env:ORCHESTRATOR_FOLDER"
-          Write-Host ""
-          Write-Host "🔍 To view results:"
-          Write-Host "   1. Log in to UiPath Orchestrator"
-          Write-Host "   2. Navigate to Test Manager"
-          Write-Host "   3. Open project: $env:TEST_MANAGER_PROJECT"
-          Write-Host "   4. Check latest execution of: $env:TEST_SET"
-          Write-Host ""
-          Write-Host "📦 Local results also saved as GitHub artifacts"
-          Write-Host "================================================"
+              -orchestratorUrl $env:ORCHESTRATOR_URL `
+              -orchestratorTenant $env:ORCHESTRATOR_TENANT `
+              -folderName $env:ORCHESTRATOR_FOLDER `
+              -testSet $env:TEST_SET `
+              -orchestratorApplica
