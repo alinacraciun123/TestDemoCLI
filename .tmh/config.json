@@ -1,0 +1,9 @@
+{
+  "issueKeyTestcaseValues": {},
+  "testManagerBasePath": "https://staging.uipath.com/uipatcvdtryn/defaulttenant/testmanager_/",
+  "defaultProject": {
+    "id": "07d691f7-5677-0000-35a6-0b47516709dc",
+    "name": "TestDemo",
+    "key": "001"
+  }
+}
