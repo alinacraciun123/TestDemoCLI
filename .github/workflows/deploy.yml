@@ -7,12 +7,12 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_PATH: "project.json"
-  ORCHESTRATOR_URL: "https://staging.uipath.com/uipatcvdtryn/DefaultTenant/orchestrator_"
-  ORCHESTRATOR_FOLDER: "express"
-  ORCHESTRATOR_TENANT: "DefaultTenant"
-  TEST_SET: "Test_Set_TestDemoCli_Tests"
-  TEST_MANAGER_PROJECT: "TestDemo"
+  PROJECT_PATH: project.json
+  ORCHESTRATOR_URL: https://staging.uipath.com/
+  ORCHESTRATOR_FOLDER: express
+  ORCHESTRATOR_TENANT: DefaultTenant
+  TEST_SET: Test_Set_TestDemoCli_Tests
+  TEST_MANAGER_PROJECT: TestDemo
 
 jobs:
   build-and-deploy:
