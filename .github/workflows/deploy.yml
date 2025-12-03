@@ -15,51 +15,96 @@ env:
   CLI_URL: https://uipath.visualstudio.com/Public.Feeds/_artifacts/feed/UiPath-Official/NuGet/UiPath.CLI.Windows/overview/24.12.9166.24491
   TEST_SET: Test_Set_TestDemoCli_Tests
   TEST_MANAGER_PROJECT: TestDemo
-  ORCH_CLIENT_ID: ${{secrets.APP_ID}}
-  ORCH_SECRET: ${{secrets.SECRET}}
+  ORCH_CLIENT_ID: ${{ secrets.APP_ID }}
+  ORCH_SECRET: ${{ secrets.SECRET }}
 
 jobs:
-  cleaner:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Runner workspace path
-        run:
-          echo "Cleaning up previous run"
-          rm -rf "${{github.workspace}}"
-
-  build-uipath-nuget-package:
-    needs: cleaner
+  Build:
     runs-on: windows-latest
     steps:
-      - name: check out repo code
+
+      - name: Checkout Code
         uses: actions/checkout@v3
+
+      - name: Print Working Directory
+        run: |
+          pwd
+          ls
+
       - name: Setup .NET 6 Runtime
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: '6.0.x'
-          include-prerelease: false
-      - name: Build nuget pkg
-        shell: pwsh
-        run: ${{github.workspace}}\Scripts\UiPathPack.ps1 ${{github.workspace}}\project.json -destination_folder ${{github.workspace}}\package -outputType Process
-      - name: Upload UiPath Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Artifacts
-          path:
-            package/*.*
-            scripts/*.ps1
-  publish-uipath-nuget-package:
-    needs: build-uipath-nuget-package
-    runs-on: windows-latest
-    steps:
-      - name: Download UiPath Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: Artifacts
-      - name: Publish pckg
-        shell: pwsh
-        run: 
-          ${{ github.workspace }}\Scripts\UiPathDeploy.ps1 ${{ github.workspace }}\package ${{ env.ORCHESTRATOR_URL }} ${{ env.ORCHESTRATOR_TENANT }} -folder_organization_unit ${{ env.ORCHESTRATOR_FOLDER }} -accountForApp accountForExternalApp -applicationId ${{ secrets.APP_ID }} -applicationSecret ${{ secrets.SECRET }} -applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
 
-  
-  
+      - name: Get UiPath CLI
+        run: |
+          $cliDir = "C:\uipathcli"
+          if (-Not (Test-Path $cliDir)) { New-Item -Path "C:\" -ItemType Directory -Name "uipathcli" }
+          Invoke-WebRequest "${{ env.CLI_URL }}" -OutFile "$cliDir\UiPath.CLI.Windows.nupkg"
+          Expand-Archive -LiteralPath "$cliDir\UiPath.CLI.Windows.nupkg" -DestinationPath $cliDir
+
+      - name: Pack Project
+        run: |
+          $workspace = $env:GITHUB_WORKSPACE
+          $outputDir = Join-Path $workspace "package"
+          if (-Not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir }
+
+          Write-Host "=========================================="
+          Write-Host "Packing UiPath Project"
+          Write-Host "=========================================="
+
+          & "$cliDir\tools\uipcli.exe" package pack "$workspace\project.json" -destination_folder "$outputDir" -outputType Process
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Packing failed!"
+            exit 1
+          }
+
+          $package = Get-ChildItem -Path $outputDir -Filter "*.nupkg" | Select-Object -First 1
+          echo "PACKAGE_PATH=$($package.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "PACKAGE_NAME=$($package.Name)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          Write-Host "✓ Package created: $($package.Name)" -ForegroundColor Green
+
+      - name: Deploy Package
+        run: |
+          $workspace = $env:GITHUB_WORKSPACE
+          $packageDir = Join-Path $workspace "package"
+
+          Write-Host "=========================================="
+          Write-Host "Deploying Package to Orchestrator"
+          Write-Host "=========================================="
+
+          & "$cliDir\tools\uipcli.exe" package deploy "$packageDir" "${{ env.ORCHESTRATOR_URL }}" "${{ env.ORCHESTRATOR_TENANT }}" `
+            -folder_organization_unit "${{ env.ORCHESTRATOR_FOLDER }}" `
+            -accountForApp "${{ env.Orch_ACC_NAME }}" `
+            -applicationId "${{ env.ORCH_CLIENT_ID }}" `
+            -applicationSecret "${{ env.ORCH_SECRET }}" `
+            -applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users.Read"
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Deployment failed!"
+            exit 1
+          }
+
+          Write-Host "✓ Deployment successful: $($package.Name)" -ForegroundColor Green
+
+      - name: Run Test Set
+        run: |
+          $workspace = $env:GITHUB_WORKSPACE
+
+          Write-Host "=========================================="
+          Write-Host "Running Test Set: ${{ env.TEST_SET }}"
+          Write-Host "Project: ${{ env.TEST_MANAGER_PROJECT }}"
+          Write-Host "=========================================="
+
+          & "$cliDir\tools\uipcli.exe" test run "${{ env.ORCHESTRATOR_URL }}" "${{ env.ORCHESTRATOR_TENANT }}" `
+            -A "${{ env.Orch_ACC_NAME }}" `
+            -I "${{ env.ORCH_CLIENT_ID }}" `
+            -S "${{ env.ORCH_SECRET }}" `
+            -o "${{ env.ORCHESTRATOR_FOLDER }}" `
+            --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users.Read" `
+            -s "${{ env.TEST_SET }}"
+
+          $exitCode = $LASTEXITCODE
+          exit $exitCode
