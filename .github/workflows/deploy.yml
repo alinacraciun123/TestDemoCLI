@@ -19,11 +19,11 @@ env:
   ORCH_SECRET: ${{ secrets.SECRET }}
 
 jobs:
-  Build:
+  BuildAndDeploy:
     runs-on: windows-latest
     steps:
 
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
       - name: Print Working Directory
@@ -44,8 +44,10 @@ jobs:
           Expand-Archive -LiteralPath "$cliDir\UiPath.CLI.Windows.nupkg" -DestinationPath $cliDir
 
       - name: Pack Project
+        shell: pwsh
         run: |
           $workspace = $env:GITHUB_WORKSPACE
+          $cliDir = "C:\uipathcli"
           $outputDir = Join-Path $workspace "package"
           if (-Not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir }
 
@@ -67,9 +69,11 @@ jobs:
           Write-Host "✓ Package created: $($package.Name)" -ForegroundColor Green
 
       - name: Deploy Package
+        shell: pwsh
         run: |
           $workspace = $env:GITHUB_WORKSPACE
           $packageDir = Join-Path $workspace "package"
+          $cliDir = "C:\uipathcli"
 
           Write-Host "=========================================="
           Write-Host "Deploying Package to Orchestrator"
@@ -90,8 +94,10 @@ jobs:
           Write-Host "✓ Deployment successful: $($package.Name)" -ForegroundColor Green
 
       - name: Run Test Set
+        shell: pwsh
         run: |
           $workspace = $env:GITHUB_WORKSPACE
+          $cliDir = "C:\uipathcli"
 
           Write-Host "=========================================="
           Write-Host "Running Test Set: ${{ env.TEST_SET }}"
@@ -108,3 +114,11 @@ jobs:
 
           $exitCode = $LASTEXITCODE
           exit $exitCode
+
+      - name: Upload Test Results Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ./TestResults/**/*
+          retention-days: 30
