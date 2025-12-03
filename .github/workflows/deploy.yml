@@ -7,13 +7,12 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_PATH: "project.json"
-  ORCHESTRATOR_URL: "https://staging.uipath.com/uipatcvdtryn/DefaultTenant/orchestrator_"
-  ORCHESTRATOR_FOLDER: "express"
-  ORCHESTRATOR_TENANT: "DefaultTenant"
-  IDENTITY_URL: "https://staging.uipath.com/identity_"
-  TEST_SET: "Test_Set_TestDemoCli_Tests"
-  TEST_MANAGER_PROJECT: "TestDemo"
+  PROJECT_PATH: project.json
+  ORCHESTRATOR_URL: https://staging.uipath.com/uipatcvdtryn/DefaultTenant/orchestrator_
+  ORCHESTRATOR_FOLDER: express
+  ORCHESTRATOR_TENANT: DefaultTenant
+  TEST_SET: Test_Set_TestDemoCli_Tests
+  TEST_MANAGER_PROJECT: TestDemo
 
 jobs:
   build-and-deploy:
@@ -107,7 +106,7 @@ jobs:
             -orchestratorApplicationId ${{ secrets.APP_ID }} `
             -orchestratorApplicationSecret ${{ secrets.SECRET }} `
             -orchestratorApplicationScope $appScope `
-            -identityUrl $env:IDENTITY_URL `
+      
             -testResultsOutputPath $testResultsPath `
             -timeout 3600
 
