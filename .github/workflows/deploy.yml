@@ -12,7 +12,8 @@ env:
   TEST_SET: Test_Set_TestDemoCli_Tests
   TEST_MANAGER_PROJECT: TestDemo
   CLI_VERSION: 24.12.9166.24491
-  CLI_URL: https://uipath.pkgs.visualstudio.com/Public.Feeds/_apis/packaging/feeds/UiPath-Official/packages/UiPath.CLI.Windows/versions/24.12.9166.24491/content
+  CLI_URL: https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/flat2/uipath.cli.windows/24.12.9166.24491/uipath.cli.windows.24.12.9166.24491.nupkg
+
 
 jobs:
 
