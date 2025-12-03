@@ -35,12 +35,11 @@ jobs:
           Write-Host "Packing UiPath Project"
           Write-Host "=========================================="
 
-          # Full paths to avoid quoting issues
           $projectFile = Join-Path $env:GITHUB_WORKSPACE $env:PROJECT_PATH
           $outputFolder = Join-Path $env:GITHUB_WORKSPACE "Output"
 
-          # Call UiPath CLI via script
-          .\Scripts\UiPathPack.ps1 $projectFile -destination_folder $outputFolder -outputType Process
+          # Call the existing PowerShell script safely
+          & .\Scripts\UiPathPack.ps1 $projectFile -destination_folder $outputFolder -outputType Process
 
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Packing failed!"
@@ -62,7 +61,7 @@ jobs:
 
           $appScope = "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
 
-          .\Scripts\UiPathDeploy.ps1 `
+          & .\Scripts\UiPathDeploy.ps1 `
             $env:PACKAGE_PATH `
             $env:ORCHESTRATOR_URL `
             $env:ORCHESTRATOR_TENANT `
@@ -97,7 +96,9 @@ jobs:
 
           $appScope = "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
 
-          .\Scripts\UiPathRunTests.ps1 `
+          $testResultsPath = Join-Path $env:GITHUB_WORKSPACE "TestResults"
+
+          & .\Scripts\UiPathRunTests.ps1 `
             -orchestratorUrl $env:ORCHESTRATOR_URL `
             -orchestratorTenant $env:ORCHESTRATOR_TENANT `
             -folderName $env:ORCHESTRATOR_FOLDER `
@@ -106,7 +107,7 @@ jobs:
             -orchestratorApplicationSecret ${{ secrets.SECRET }} `
             -orchestratorApplicationScope $appScope `
             -identityUrl $env:IDENTITY_URL `
-            -testResultsOutputPath "$env:GITHUB_WORKSPACE\TestResults" `
+            -testResultsOutputPath $testResultsPath `
             -timeout 3600
 
           $exitCode = $LASTEXITCODE
@@ -129,3 +130,28 @@ jobs:
           name: test-results
           path: ./TestResults/**/*
           retention-days: 30
+
+      - name: Test Results Summary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "================================================"
+          Write-Host "           TEST EXECUTION SUMMARY"
+          Write-Host "================================================"
+          Write-Host ""
+          Write-Host "✓ Test results recorded in Test Manager"
+          Write-Host ""
+          Write-Host "📍 Location:"
+          Write-Host "   Project: $env:TEST_MANAGER_PROJECT"
+          Write-Host "   Test Set: $env:TEST_SET"
+          Write-Host "   Folder: $env:ORCHESTRATOR_FOLDER"
+          Write-Host ""
+          Write-Host "🔍 To view results:"
+          Write-Host "   1. Log in to UiPath Orchestrator"
+          Write-Host "   2. Navigate to Test Manager"
+          Write-Host "   3. Open project: $env:TEST_MANAGER_PROJECT"
+          Write-Host "   4. Check latest execution of: $env:TEST_SET"
+          Write-Host ""
+          Write-Host "📦 Local results also saved as GitHub artifacts"
+          Write-Host "================================================"
