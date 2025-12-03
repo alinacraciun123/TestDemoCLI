@@ -34,22 +34,22 @@ jobs:
           Write-Host "=========================================="
           Write-Host "Packing UiPath Project"
           Write-Host "=========================================="
-
+      
           $projectFile = Join-Path $env:GITHUB_WORKSPACE $env:PROJECT_PATH
           $outputFolder = Join-Path $env:GITHUB_WORKSPACE "Output"
-
-          # Call the existing PowerShell script safely
-          & .\Scripts\UiPathPack.ps1 $projectFile -destination_folder $outputFolder -outputType Process
-
+      
+          # Pass the project path inside single quotes to avoid double quoting
+          & .\Scripts\UiPathPack.ps1 "'$projectFile'" -destination_folder $outputFolder -outputType Process
+      
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Packing failed!"
             exit 1
           }
-
+      
           $package = Get-ChildItem -Path $outputFolder -Filter "*.nupkg" | Select-Object -First 1
           echo "PACKAGE_PATH=$($package.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "PACKAGE_NAME=$($package.Name)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
+      
           Write-Host "✓ Package created: $($package.Name)" -ForegroundColor Green
 
       - name: Deploy to Orchestrator
