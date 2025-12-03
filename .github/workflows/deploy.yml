@@ -10,7 +10,6 @@ env:
   ORCHESTRATOR_FOLDER: express
   Orch_ACC_NAME: uipatcvdtryn
   TEST_SET: Test_Set_TestDemoCli_Tests
-  TEST_MANAGER_PROJECT: TestDemo
   CLI_VERSION: 24.12.9166.24491
   CLI_URL: https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/flat2/uipath.cli.windows/24.12.9166.24491/uipath.cli.windows.24.12.9166.24491.nupkg
   DOTNET_ROOT: C:\Program Files\dotnet
@@ -69,19 +68,83 @@ jobs:
               --createProcess true `
               --entryPointsPath "Main.xaml" `
               --organizationUnit "$env:ORCHESTRATOR_FOLDER"
-      # RUN TEST using Test Manager
-      - name: Run Test Set in Test Manager
+      # RUN TEST using Orchestrator API
+      - name: Run Test Set via Orchestrator API
         shell: pwsh
         run: |
-          $CLI = "C:\uipathcli\tools\uipcli.exe"
-          & $CLI test execute `
-              "$env:ORCHESTRATOR_URL" `
-              "$env:ORCHESTRATOR_TENANT" `
-              -A "$env:Orch_ACC_NAME" `
-              -I "$env:ORCH_CLIENT_ID" `
-              -S "$env:ORCH_SECRET" `
-              --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
-              --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
-              --project_name "$env:TEST_MANAGER_PROJECT" `
-              --testset "$env:TEST_SET" `
-              --wait
+          # Get OAuth token
+          Write-Host "Getting authentication token..."
+          $authBody = @{
+              grant_type = "client_credentials"
+              client_id = $env:ORCH_CLIENT_ID
+              client_secret = $env:ORCH_SECRET
+              scope = "OR.TestSetExecutions OR.TestSets OR.Execution OR.Folders"
+          }
+          
+          $tokenResponse = Invoke-RestMethod -Uri "https://cloud.uipath.com/identity_/connect/token" -Method Post -Body $authBody -ContentType "application/x-www-form-urlencoded"
+          $token = $tokenResponse.access_token
+          Write-Host "Token obtained successfully"
+          
+          # Get Folder ID
+          Write-Host "Getting folder ID for: $env:ORCHESTRATOR_FOLDER"
+          $foldersUrl = "$env:ORCHESTRATOR_URL$env:Orch_ACC_NAME/$env:ORCHESTRATOR_TENANT/orchestrator_/odata/Folders?`$filter=DisplayName eq '$env:ORCHESTRATOR_FOLDER'"
+          $headers = @{
+              Authorization = "Bearer $token"
+              "Content-Type" = "application/json"
+          }
+          
+          $folderResponse = Invoke-RestMethod -Uri $foldersUrl -Method Get -Headers $headers
+          $folderId = $folderResponse.value[0].Id
+          Write-Host "Folder ID: $folderId"
+          
+          # Get Test Set ID
+          Write-Host "Getting test set ID for: $env:TEST_SET"
+          $testSetsUrl = "$env:ORCHESTRATOR_URL$env:Orch_ACC_NAME/$env:ORCHESTRATOR_TENANT/orchestrator_/odata/TestSets?`$filter=Name eq '$env:TEST_SET'"
+          $headers["X-UIPATH-OrganizationUnitId"] = $folderId
+          
+          $testSetResponse = Invoke-RestMethod -Uri $testSetsUrl -Method Get -Headers $headers
+          $testSetId = $testSetResponse.value[0].Id
+          Write-Host "Test Set ID: $testSetId"
+          
+          # Start Test Execution
+          Write-Host "Starting test execution..."
+          $executeUrl = "$env:ORCHESTRATOR_URL$env:Orch_ACC_NAME/$env:ORCHESTRATOR_TENANT/orchestrator_/odata/TestSetExecutions/UiPath.Server.Configuration.OData.StartTestSetExecution"
+          
+          $executeBody = @{
+              testSetId = $testSetId
+          } | ConvertTo-Json
+          
+          $executionResponse = Invoke-RestMethod -Uri $executeUrl -Method Post -Headers $headers -Body $executeBody
+          $executionId = $executionResponse.Id
+          Write-Host "Test execution started with ID: $executionId"
+          
+          # Wait for completion (optional)
+          Write-Host "Waiting for test execution to complete..."
+          $timeout = 1800  # 30 minutes
+          $elapsed = 0
+          $checkInterval = 10
+          
+          do {
+              Start-Sleep -Seconds $checkInterval
+              $elapsed += $checkInterval
+              
+              $statusUrl = "$env:ORCHESTRATOR_URL$env:Orch_ACC_NAME/$env:ORCHESTRATOR_TENANT/orchestrator_/odata/TestSetExecutions($executionId)"
+              $status = Invoke-RestMethod -Uri $statusUrl -Method Get -Headers $headers
+              
+              Write-Host "Status: $($status.Status) - Elapsed: $elapsed seconds"
+              
+              if ($status.Status -eq "Passed") {
+                  Write-Host "✓ Tests PASSED"
+                  exit 0
+              }
+              elseif ($status.Status -eq "Failed") {
+                  Write-Host "✗ Tests FAILED"
+                  exit 1
+              }
+              
+          } while ($elapsed -lt $timeout -and $status.Status -notin @("Passed", "Failed"))
+          
+          if ($elapsed -ge $timeout) {
+              Write-Host "✗ Test execution timed out"
+              exit 1
+          }
