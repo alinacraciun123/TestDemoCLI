@@ -57,13 +57,13 @@ jobs:
           Write-Host "=========================================="
           
           .\Scripts\UiPathDeploy.ps1 `
-            "${{ env.PACKAGE_PATH }}" `
-            "${{ env.ORCHESTRATOR_URL }}" `
-            "${{ env.ORCHESTRATOR_TENANT }}" `
-            -folder_organization_unit "${{ env.ORCHESTRATOR_FOLDER }}" `
-            -accountForApp "accountForExternalApp" `
-            -applicationId "${{ secrets.APP_ID }}" `
-            -applicationSecret "${{ secrets.SECRET }}" `
+            $env:PACKAGE_PATH `
+            ${{ env.ORCHESTRATOR_URL }} `
+            ${{ env.ORCHESTRATOR_TENANT }} `
+            -folder_organization_unit ${{ env.ORCHESTRATOR_FOLDER }} `
+            -accountForApp accountForExternalApp `
+            -applicationId ${{ secrets.APP_ID }} `
+            -applicationSecret ${{ secrets.SECRET }} `
             -applicationScope "OR.Execution OR.Folders OR.TestSets OR.TestSetExecutions OR.TestSetSchedules"
           
           if ($LASTEXITCODE -ne 0) {
