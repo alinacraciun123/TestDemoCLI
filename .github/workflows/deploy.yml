@@ -29,10 +29,9 @@ jobs:
           Write-Host "Packing UiPath Project"
           Write-Host "=========================================="
           
-          .\Scripts\UiPathPack.ps1 `
-            -ProjectFilePath "${{ env.PROJECT_PATH }}" `
-            -OutputFolder ".\Output" `
-            -OutputType "Process"
+          .\Scripts\UiPathPack.ps1 "${{ env.PROJECT_PATH }}" `
+            -destination_folder ".\Output" `
+            -outputType "Process"
           
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Packing failed!"
@@ -53,14 +52,14 @@ jobs:
           Write-Host "=========================================="
           
           .\Scripts\UiPathDeploy.ps1 `
-            -packagePath "${{ env.PACKAGE_PATH }}" `
-            -orchestratorUrl "${{ env.ORCHESTRATOR_URL }}" `
-            -orchestratorTenant "${{ env.ORCHESTRATOR_TENANT }}" `
-            -folderName "${{ env.ORCHESTRATOR_FOLDER }}" `
-            -orchestratorApplicationId "${{ secrets.APP_ID }}" `
-            -orchestratorApplicationSecret "${{ secrets.SECRET }}" `
-            -orchestratorApplicationScope "OR.Execution OR.Folders OR.TestSets OR.TestSetExecutions OR.TestSetSchedules" `
-            -identityUrl "${{ env.IDENTITY_URL }}"
+            "${{ env.PACKAGE_PATH }}" `
+            "${{ env.ORCHESTRATOR_URL }}" `
+            "${{ env.ORCHESTRATOR_TENANT }}" `
+            -folder_organization_unit "${{ env.ORCHESTRATOR_FOLDER }}" `
+            -accountForApp "accountForExternalApp" `
+            -applicationId "${{ secrets.APP_ID }}" `
+            -applicationSecret "${{ secrets.SECRET }}" `
+            -applicationScope "OR.Execution OR.Folders OR.TestSets OR.TestSetExecutions OR.TestSetSchedules"
           
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Deployment failed!"
