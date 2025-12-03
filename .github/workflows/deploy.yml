@@ -1,155 +1,101 @@
-name: UiPath CI/CD
+name: UiPathRunTests
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 env:
   PROJECT_NAME: TestDemoCLI
   ORCHESTRATOR_URL: https://staging.uipath.com/
   ORCHESTRATOR_TENANT: DefaultTenant
   ORCHESTRATOR_FOLDER: express
+  Orch_ACC_NAME: uipatcvdtryn
   TEST_SET: Test_Set_TestDemoCli_Tests
   TEST_MANAGER_PROJECT: TestDemo
   CLI_VERSION: 24.12.9166.24491
   CLI_URL: https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/flat2/uipath.cli.windows/24.12.9166.24491/uipath.cli.windows.24.12.9166.24491.nupkg
-
+  DOTNET_ROOT: C:\Program Files\dotnet
+  ORCH_CLIENT_ID: ${{ secrets.APP_ID }}
+  ORCH_SECRET: ${{ secrets.SECRET }}
 
 jobs:
-
-# ---------------------------------------------------------------------
-# 1) PACK JOB
-# ---------------------------------------------------------------------
-  pack:
+  Build-Pack-Deploy-Test:
     runs-on: windows-latest
-
     steps:
-      - name: Checkout repository
+
+      # Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install .NET 6 (required by UiPath CLI)
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "6.0.x"
+      - name: Print Working Directory
+        run: |
+          pwd
+          ls
 
+      # Download UiPath CLI
       - name: Download UiPath CLI
         shell: pwsh
         run: |
           $cli = "C:\uipathcli"
           New-Item -ItemType Directory -Force -Path $cli | Out-Null
-          Invoke-WebRequest "$env:CLI_URL" -OutFile "$cli\cli.zip"
-          Expand-Archive "$cli\cli.zip" -DestinationPath $cli
 
-      - name: Pack UiPath project
+          Write-Host "Downloading UiPath CLI from $env:CLI_URL ..."
+          Invoke-WebRequest "$env:CLI_URL" -OutFile "$cli\cli.zip"
+
+          Expand-Archive "$cli\cli.zip" -DestinationPath $cli -Force
+
+          Write-Host "CLI extracted to: $cli"
+
+      # PACK the automation project
+      - name: Pack Project
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          & $CLI package pack "$env:GITHUB_WORKSPACE\project.json" `
-              --output "$env:GITHUB_WORKSPACE\package" `
-              --outputType Process
 
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: robot-package
-          path: package/*.nupkg
+          $project = "$env:GITHUB_WORKSPACE\project.json"
+          $outDir = "$env:GITHUB_WORKSPACE\package"
 
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
-# ---------------------------------------------------------------------
-# 2) PUBLISH JOB
-# ---------------------------------------------------------------------
-  publish:
-    runs-on: windows-latest
-    needs: pack
+          & $CLI package pack `
+              "$project" `
+              --output "$outDir" `
+              --outputType Process `
+              --autoVersion
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install .NET 6
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "6.0.x"
-
-      - name: Download UiPath CLI
+      # DEPLOY the .nupkg package
+      - name: Deploy Package to Orchestrator
         shell: pwsh
-        run: |
-          $cli = "C:\uipathcli"
-          New-Item -ItemType Directory -Force -Path $cli | Out-Null
-          Invoke-WebRequest "$env:CLI_URL" -OutFile "$cli\cli.zip"
-          Expand-Archive "$cli\cli.zip" -DestinationPath $cli
-
-      - name: Download package artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: robot-package
-          path: ./package
-
-      - name: Publish package to Orchestrator
-        shell: pwsh
-        env:
-          ORCH_CLIENT_ID: ${{ secrets.ORCH_CLIENT_ID }}
-          ORCH_SECRET: ${{ secrets.ORCH_SECRET }}
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
 
-          & $CLI config orchestrator `
-            --url "$env:ORCHESTRATOR_URL" `
-            --tenant "$env:ORCHESTRATOR_TENANT" `
-            --clientId "$env:ORCH_CLIENT_ID" `
-            --userKey "$env:ORCH_SECRET" `
-            --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
+          $pkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg" | Select-Object -First 1
 
-          $pkg = Get-ChildItem package\*.nupkg | Select-Object -First 1
+          Write-Host "Deploying package: $($pkg.FullName)"
+
           & $CLI package deploy `
-              --file "$($pkg.FullName)" `
-              --folder "$env:ORCHESTRATOR_FOLDER"
+              "$($pkg.FullName)" `
+              "$env:ORCHESTRATOR_URL" `
+              "$env:ORCHESTRATOR_TENANT" `
+              -A "$env:Orch_ACC_NAME" `
+              -I "$env:ORCH_CLIENT_ID" `
+              -S "$env:ORCH_SECRET" `
+              --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
+              -o "$env:ORCHESTRATOR_FOLDER"
 
-
-# ---------------------------------------------------------------------
-# 3) TEST JOB
-# ---------------------------------------------------------------------
-  test:
-    runs-on: windows-latest
-    needs: publish
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install .NET 6
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "6.0.x"
-
-      - name: Download UiPath CLI
+      # RUN TEST SET
+      - name: Run Test Set
         shell: pwsh
-        run: |
-          $cli = "C:\uipathcli"
-          New-Item -ItemType Directory -Force -Path $cli | Out-Null
-          Invoke-WebRequest "$env:CLI_URL" -OutFile "$cli\cli.zip"
-          Expand-Archive "$cli\cli.zip" -DestinationPath $cli
-
-      - name: Run UiPath Test Set
-        shell: pwsh
-        env:
-          ORCH_CLIENT_ID: ${{ secrets.ORCH_CLIENT_ID }}
-          ORCH_SECRET: ${{ secrets.ORCH_SECRET }}
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
 
-          & $CLI config orchestrator `
-            --url "$env:ORCHESTRATOR_URL" `
-            --tenant "$env:ORCHESTRATOR_TENANT" `
-            --clientId "$env:ORCH_CLIENT_ID" `
-            --userKey "$env:ORCH_SECRET" `
-            --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
-
-          & $CLI test execute `
-            --testSet "$env:TEST_SET" `
-            --folder "$env:ORCHESTRATOR_FOLDER" `
-            --out junit.xml
-
-      - name: Upload Test Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: junit.xml
+          & $CLI test run `
+              "$env:ORCHESTRATOR_URL" `
+              "$env:ORCHESTRATOR_TENANT" `
+              -A "$env:Orch_ACC_NAME" `
+              -I "$env:ORCH_CLIENT_ID" `
+              -S "$env:ORCH_SECRET" `
+              --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
+              -o "$env:ORCHESTRATOR_FOLDER" `
+              -s "$env:TEST_SET"
