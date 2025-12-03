@@ -35,18 +35,18 @@ jobs:
           Write-Host "Packing UiPath Project"
           Write-Host "=========================================="
       
-          $projectFile = Join-Path $env:GITHUB_WORKSPACE $env:PROJECT_PATH
-          $outputFolder = Join-Path $env:GITHUB_WORKSPACE "Output"
+          # Change to repo root
+          Set-Location $env:GITHUB_WORKSPACE
       
-          # Call the existing script with & and pass variables directly, no quotes
-          & .\Scripts\UiPathPack.ps1 $projectFile -destination_folder $outputFolder -outputType Process
+          # Call script using relative path (no quotes)
+          & .\Scripts\UiPathPack.ps1 $env:PROJECT_PATH -destination_folder ".\Output" -outputType Process
       
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Packing failed!"
             exit 1
           }
       
-          $package = Get-ChildItem -Path $outputFolder -Filter "*.nupkg" | Select-Object -First 1
+          $package = Get-ChildItem -Path ".\Output" -Filter "*.nupkg" | Select-Object -First 1
           echo "PACKAGE_PATH=$($package.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "PACKAGE_NAME=$($package.Name)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       
