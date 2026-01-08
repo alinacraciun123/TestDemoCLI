@@ -102,7 +102,7 @@ jobs:
           files: TestResults/**/*.xml
 
       
-      # Step: Upload JUnit XML as artifact for download
+      # 9. Step: Upload JUnit XML as artifact for download
       - name: Upload Test Results Artifact
         uses: actions/upload-artifact@v4
         with:
