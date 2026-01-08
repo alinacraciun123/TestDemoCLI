@@ -11,7 +11,7 @@ env:
   ORCHESTRATOR_TENANT: DefaultTenant
   ORCHESTRATOR_FOLDER: express
   ORCH_ACCOUNT_NAME: uipatcvdtryn
-  TEST_SET: Test_Set_TestDemoCli_Tests
+  TEST_SET: Test_Set_TestDemoCli_Tests2
   CLI_VERSION: 24.12.9166.24491
   CLI_URL: https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/flat2/uipath.cli.windows/24.12.9166.24491/uipath.cli.windows.24.12.9166.24491.nupkg
   ORCH_CLIENT_ID: ${{ secrets.APP_ID }}
