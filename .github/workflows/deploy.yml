@@ -14,7 +14,6 @@ env:
   TEST_SET: Test_Set_TestDemoCli_Tests
   CLI_VERSION: 24.12.9166.24491
   CLI_URL: https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/flat2/uipath.cli.windows/24.12.9166.24491/uipath.cli.windows.24.12.9166.24491.nupkg
-  DOTNET_ROOT: C:\Program Files\dotnet
   ORCH_CLIENT_ID: ${{ secrets.APP_ID }}
   ORCH_SECRET: ${{ secrets.SECRET }}
 
@@ -23,15 +22,11 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # 1. Checkout
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Print Working Directory
-        run: |
-          pwd
-          ls
-
-      # Install UiPath CLI
+      # 2. Download UiPath CLI
       - name: Download UiPath CLI
         shell: pwsh
         run: |
@@ -41,70 +36,65 @@ jobs:
           Expand-Archive "$cliDir\cli.zip" -DestinationPath $cliDir -Force
           & "$cliDir\tools\uipcli.exe" --version
 
-      # Pack process packages
+      # 3. Pack process
       - name: Pack Process Project
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          $project = "$env:GITHUB_WORKSPACE\project.json"
-          $pkgDir = "$env:GITHUB_WORKSPACE\package"
-          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
-          & $CLI package pack "$project" --output "$pkgDir" --outputType Process --autoVersion
+          $outDir = "$env:GITHUB_WORKSPACE\package"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          & $CLI package pack "$env:GITHUB_WORKSPACE\project.json" --output "$outDir" --outputType Process --autoVersion
 
-      # Pack tests
+      # 4. Pack tests
       - name: Pack Test Project
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          $project = "$env:GITHUB_WORKSPACE\project.json"
-          & $CLI package pack "$project" --output "$env:GITHUB_WORKSPACE\package" --outputType Tests --autoVersion
+          & $CLI package pack "$env:GITHUB_WORKSPACE\project.json" --output "$env:GITHUB_WORKSPACE\package" --outputType Tests --autoVersion
 
-      # Deploy process
-      - name: Deploy Process Package
+      # 5. Deploy process package
+      - name: Deploy Process Package to Orchestrator
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          $pkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg" | Where-Object { $_.Name -notlike '*Tests*' } | Select-Object -First 1
+          $pkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg" | Where-Object { $_.Name -notlike "*Tests*" } | Select-Object -First 1
           & $CLI package deploy "$($pkg.FullName)" "$env:ORCHESTRATOR_URL" "$env:ORCHESTRATOR_TENANT" `
-            -A "$env:ORCH_ACCOUNT_NAME" -I "$env:ORCH_CLIENT_ID" -S "$env:ORCH_SECRET" `
-            --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
-            --processName "TestDemoCli" --createProcess true --entryPointsPath "Main.xaml" --organizationUnit "$env:ORCHESTRATOR_FOLDER"
+              -A "$env:ORCH_ACCOUNT_NAME" -I "$env:ORCH_CLIENT_ID" -S "$env:ORCH_SECRET" `
+              --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
+              --processName "TestDemoCli" --createProcess true --entryPointsPath "Main.xaml" --organizationUnit "$env:ORCHESTRATOR_FOLDER"
 
-      # Deploy tests
-      - name: Deploy Test Package
+      # 6. Deploy test package
+      - name: Deploy Test Package to Orchestrator
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
           $testPkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*Tests*.nupkg" | Select-Object -First 1
           if ($testPkg) {
-              & $CLI package deploy "$($testPkg.FullName)" "$env:ORCHESTRATOR_URL" "$env:ORCHESTRATOR_TENANT" `
-                  -A "$env:ORCH_ACCOUNT_NAME" -I "$env:ORCH_CLIENT_ID" -S "$env:ORCH_SECRET" `
-                  --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
-                  --organizationUnit "$env:ORCHESTRATOR_FOLDER"
+            & $CLI package deploy "$($testPkg.FullName)" "$env:ORCHESTRATOR_URL" "$env:ORCHESTRATOR_TENANT" `
+                -A "$env:ORCH_ACCOUNT_NAME" -I "$env:ORCH_CLIENT_ID" -S "$env:ORCH_SECRET" `
+                --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
+                --organizationUnit "$env:ORCHESTRATOR_FOLDER"
           }
 
-      # Run Test Set via CLI against Orchestrator
-      - name: Run Test Set
+      # 7. Run Test Set in Orchestrator with JUnit output
+      - name: Run Test Set via CLI
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
           New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\TestResults" | Out-Null
 
-          & $CLI test run `
-              "$env:ORCHESTRATOR_URL" `
-              "$env:ORCHESTRATOR_TENANT" `
-              -P "$env:GITHUB_WORKSPACE\package\*Tests*.nupkg" `
-              -s "$env:TEST_SET" `
-              -o "$env:ORCHESTRATOR_FOLDER" `
-              -A "$env:ORCH_ACCOUNT_NAME" `
-              -I "$env:ORCH_CLIENT_ID" `
-              -S "$env:ORCH_SECRET" `
-              --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
-              --identityURL "https://staging.uipath.com/identity" `
-              --out junit `
-              --result_path "$env:GITHUB_WORKSPACE\TestResults"
+          & $CLI test run "$env:ORCHESTRATOR_URL" "$env:ORCHESTRATOR_TENANT" `
+            -P "$env:GITHUB_WORKSPACE\package\*Tests*.nupkg" `
+            -s "$env:TEST_SET" `
+            -o "$env:ORCHESTRATOR_FOLDER" `
+            -A "$env:ORCH_ACCOUNT_NAME" `
+            -I "$env:ORCH_CLIENT_ID" `
+            -S "$env:ORCH_SECRET" `
+            --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
+            --out junit `
+            --result_path "$env:GITHUB_WORKSPACE\TestResults"
 
-      # Publish JUnit results
+      # 8. Publish JUnit results
       - name: Publish Test Results
         uses: dorny/test-reporter@v1
         with:
