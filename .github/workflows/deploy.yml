@@ -96,9 +96,10 @@ jobs:
 
       # 8. Publish JUnit results
       - name: Publish Test Results
-        uses: dorny/test-reporter@v1
+        uses: actions/upload-test-results@v3
         with:
-          name: UiPath Tests
-          path: ${{ github.workspace }}/TestResults/**/*.xml
-          reporter: junit
+          files: TestResults/TestResults.xml
+          test-results-format: 'JUnit'
+          test-run-title: "UiPath Tests"
           fail-on-error: true
+          fail-on-empty: true
