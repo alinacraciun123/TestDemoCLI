@@ -41,7 +41,6 @@ jobs:
           Invoke-WebRequest "$env:CLI_URL" -OutFile "$cli\cli.zip"
           Expand-Archive "$cli\cli.zip" -DestinationPath $cli -Force
           Write-Host "CLI extracted to: $cli"
-          
           $cliPath = "$cli\tools\uipcli.exe"
           if (Test-Path $cliPath) {
               Write-Host "✓ CLI installed successfully"
@@ -56,16 +55,16 @@ jobs:
           $project = "$env:GITHUB_WORKSPACE\project.json"
           $outDir = "$env:GITHUB_WORKSPACE\package"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-          
+
           Write-Host "Packing process project..."
           & $CLI package pack `
               "$project" `
               --output "$outDir" `
               --outputType Process `
               --autoVersion
-              
+
           if ($LASTEXITCODE -eq 0) {
-              $pkg = Get-ChildItem "$outDir\*.nupkg" | Select-Object -First 1
+              $pkg = Get-ChildItem "$outDir\*.nupkg" | Where-Object { $_.Name -notlike "*Tests*" } | Select-Object -First 1
               Write-Host "✓ Process package created: $($pkg.Name)"
           } else {
               Write-Error "✗ Pack failed"
@@ -79,14 +78,14 @@ jobs:
           $CLI = "C:\uipathcli\tools\uipcli.exe"
           $project = "$env:GITHUB_WORKSPACE\project.json"
           $outDir = "$env:GITHUB_WORKSPACE\package"
-          
+
           Write-Host "Packing test project..."
           & $CLI package pack `
               "$project" `
               --output "$outDir" `
               --outputType Tests `
               --autoVersion
-              
+
           if ($LASTEXITCODE -eq 0) {
               $testPkgs = Get-ChildItem "$outDir\*Tests*.nupkg"
               if ($testPkgs) {
@@ -111,12 +110,12 @@ jobs:
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
           $pkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg" | Where-Object { $_.Name -notlike "*Tests*" } | Select-Object -First 1
-          
+
           if (-not $pkg) {
               Write-Error "✗ No process package found"
               exit 1
           }
-          
+
           Write-Host "Deploying process package: $($pkg.FullName)"
           & $CLI package deploy `
               "$($pkg.FullName)" `
@@ -130,7 +129,7 @@ jobs:
               --createProcess true `
               --entryPointsPath "Main.xaml" `
               --organizationUnit "$env:ORCHESTRATOR_FOLDER"
-              
+
           if ($LASTEXITCODE -eq 0) {
               Write-Host "✓ Process package deployed successfully"
           } else {
@@ -144,12 +143,12 @@ jobs:
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
           $testPkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*Tests*.nupkg" | Select-Object -First 1
-          
+
           if (-not $testPkg) {
               Write-Warning "⚠ No test package found to deploy"
               exit 0
           }
-          
+
           Write-Host "Deploying test package: $($testPkg.FullName)"
           & $CLI package deploy `
               "$($testPkg.FullName)" `
@@ -160,42 +159,49 @@ jobs:
               -S "$env:ORCH_SECRET" `
               --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
               --organizationUnit "$env:ORCHESTRATOR_FOLDER"
-              
+
           if ($LASTEXITCODE -eq 0) {
               Write-Host "✓ Test package deployed successfully"
           } else {
               Write-Warning "⚠ Test package deploy had issues"
           }
 
-      # RUN TESTS via CLI from Orchestrator
-      - name: Run Test Set via CLI
+      # RUN TEST SET via CLI (from Orchestrator)
+      - name: Run Test Set from Orchestrator
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
           $testPkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*Tests*.nupkg" | Select-Object -First 1
-          
+
           if ($testPkg) {
-              & $CLI test run `
-                  --orchestratorUrl "$env:ORCHESTRATOR_URL" `
-                  --tenantName "$env:ORCHESTRATOR_TENANT" `
-                  --folderName "$env:ORCHESTRATOR_FOLDER" `
-                  --package "$($testPkg.Name)" `
+              Write-Host "Running test set from Orchestrator..."
+              New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\TestResults" | Out-Null
+
+              & $CLI test run-from-orchestrator `
+                  --packageName "$($testPkg.BaseName)" `
                   --testSetName "$env:TEST_SET" `
-                  --username "" `
-                  --password "" `
-                  --clientId "$env:ORCH_CLIENT_ID" `
-                  --secret "$env:ORCH_SECRET" `
-                  --output "$env:GITHUB_WORKSPACE\TestResults\TestResults.xml"
+                  --folder "$env:ORCHESTRATOR_FOLDER" `
+                  -A "$env:Orch_ACC_NAME" `
+                  -I "$env:ORCH_CLIENT_ID" `
+                  -S "$env:ORCH_SECRET" `
+                  --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
+                  --out "$env:GITHUB_WORKSPACE\TestResults\TestResults.xml"
+
+              if ($LASTEXITCODE -eq 0) {
+                  Write-Host "✓ Test set executed successfully"
+              } else {
+                  Write-Error "✗ Test set execution failed"
+                  exit 1
+              }
           } else {
               Write-Warning "⚠ No test package found to run"
           }
 
-      # Publish JUnit test results
-      - name: Publish Test Results
-        if: always()
+      # UPLOAD JUnit results
+      - name: Upload JUnit Test Results
         uses: dorny/test-reporter@v1
         with:
           name: UiPath Tests
-          path: ${{ github.workspace }}/TestResults/TestResults.xml
+          path: TestResults/TestResults.xml
           reporter: junit
           fail-on-error: true
