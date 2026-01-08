@@ -96,10 +96,11 @@ jobs:
 
       # 8. Publish JUnit results
       - name: Publish Test Results
-        uses: actions/upload-test-results@v3
+        uses: microsoft/upload-test-results@v1
         with:
           files: TestResults/TestResults.xml
           test-results-format: 'JUnit'
           test-run-title: "UiPath Tests"
           fail-on-error: true
           fail-on-empty: true
+
