@@ -1,16 +1,15 @@
-name: UiPathRunTests
+name: UiPath CI - Build Deploy Test
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 env:
-  PROJECT_NAME: TestDemoCLI
   ORCHESTRATOR_URL: https://staging.uipath.com/
   ORCHESTRATOR_TENANT: DefaultTenant
   ORCHESTRATOR_FOLDER: express
   ORCH_ACCOUNT_NAME: uipatcvdtryn
+
   TEST_SET: Test_Set_TestDemoCli_Tests
 
   CLI_VERSION: 24.12.9166.24491
@@ -20,26 +19,23 @@ env:
   ORCH_SECRET: ${{ secrets.SECRET }}
 
 jobs:
-  Build-Pack-Deploy-Test:
+  build-deploy-test:
     runs-on: windows-latest
 
     steps:
-      # ================= CHECKOUT =================
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ================= INSTALL UIPCLI =================
       - name: Install UiPath CLI
         shell: pwsh
         run: |
-          $cliRoot = "C:\uipathcli"
-          New-Item -ItemType Directory -Force -Path $cliRoot | Out-Null
-          Invoke-WebRequest "$env:CLI_URL" -OutFile "$cliRoot\cli.zip"
-          Expand-Archive "$cliRoot\cli.zip" -DestinationPath $cliRoot -Force
-          & "$cliRoot\tools\uipcli.exe" --version
+          $path = "C:\uipathcli"
+          New-Item -ItemType Directory -Force -Path $path | Out-Null
+          Invoke-WebRequest "$env:CLI_URL" -OutFile "$path\cli.zip"
+          Expand-Archive "$path\cli.zip" -DestinationPath $path -Force
+          & "$path\tools\uipcli.exe" --version
 
-      # ================= PACK PROCESS =================
-      - name: Pack Process Project
+      - name: Pack Process
         shell: pwsh
         run: |
           & "C:\uipathcli\tools\uipcli.exe" package pack `
@@ -48,8 +44,7 @@ jobs:
             --outputType Process `
             --autoVersion
 
-      # ================= PACK TESTS =================
-      - name: Pack Test Project
+      - name: Pack Tests
         shell: pwsh
         run: |
           & "C:\uipathcli\tools\uipcli.exe" package pack `
@@ -58,62 +53,39 @@ jobs:
             --outputType Tests `
             --autoVersion
 
-      # ================= DEPLOY PACKAGES (FIXED) =================
-      - name: Deploy Packages to Orchestrator
+      - name: Deploy Process Package
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          $packages = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg"
 
-          $scopes = "OR.Folders OR.BackgroundTasks OR.Execution OR.Assets OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Jobs OR.Monitoring OR.Robots OR.Machines OR.Settings OR.Users"
+          $processPkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg" |
+            Where-Object { $_.Name -notlike "*Tests*" } |
+            Select-Object -First 1
 
-          foreach ($pkg in $packages) {
-            Write-Host "Deploying $($pkg.Name)"
-            & $CLI package deploy `
-              "$($pkg.FullName)" `
-              "$env:ORCHESTRATOR_URL" `
-              "$env:ORCHESTRATOR_TENANT" `
-              -A "$env:ORCH_ACCOUNT_NAME" `
-              -I "$env:ORCH_CLIENT_ID" `
-              -S "$env:ORCH_SECRET" `
-              --applicationScope "$scopes" `
-              --organizationUnit "$env:ORCHESTRATOR_FOLDER"
-          }
-
-      # ================= RUN TEST SET (JUNIT ENABLED) =================
-      - name: Run Test Set (JUnit)
-        shell: pwsh
-        run: |
-          Write-Host "========================================="
-          Write-Host "Running Test Set: $env:TEST_SET"
-          Write-Host "========================================="
-
-          & "C:\uipathcli\tools\uipcli.exe" test run `
+          & $CLI package deploy `
+            "$($processPkg.FullName)" `
             "$env:ORCHESTRATOR_URL" `
             "$env:ORCHESTRATOR_TENANT" `
             -A "$env:ORCH_ACCOUNT_NAME" `
             -I "$env:ORCH_CLIENT_ID" `
             -S "$env:ORCH_SECRET" `
-            --applicationScope "OR.Folders OR.Execution OR.TestSets OR.TestSetExecutions" `
+            --applicationScope "OR.Folders OR.Execution OR.Assets OR.Jobs OR.Robots OR.Machines OR.Settings" `
             --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
-            --testSet "$env:TEST_SET" `
-            --wait `
-            --resultPath "$env:GITHUB_WORKSPACE\TestResults" `
-            --resultFormat junit
+            --createProcess false
 
-      # ================= PUBLISH RAW RESULTS =================
-      - name: Upload JUnit XML
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: UiPath-JUnit-Results
-          path: TestResults
+      - name: Deploy Test Package
+        shell: pwsh
+        run: |
+          $CLI = "C:\uipathcli\tools\uipcli.exe"
 
-      # ================= GITHUB TESTS TAB =================
-      - name: Publish results to GitHub Tests tab
-        if: always()
-        uses: dorny/test-reporter@v1
-        with:
-          name: UiPath Test Results
-          path: TestResults/**/*.xml
-          reporter: java-junit
+          $testPkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*Tests*.nupkg" |
+            Select-Object -First 1
+
+          & $CLI package deploy `
+            "$($testPkg.FullName)" `
+            "$env:ORCHESTRATOR_URL" `
+            "$env:ORCHESTRATOR_TENANT" `
+            -A "$env:ORCH_ACCOUNT_NAME" `
+            -I "$env:ORCH_CLIENT_ID" `
+            -S "$env:ORCH_SECRET" `
+            --applica
