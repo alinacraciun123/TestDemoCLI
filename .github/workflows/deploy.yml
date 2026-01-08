@@ -101,4 +101,23 @@ jobs:
         with:
           files: TestResults/**/*.xml
 
+      # 9. Step: Publish JUnit Test Results in GitHub Actions UI
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v3
+        with:
+          files: TestResults/TestResults.xml   # path to the JUnit XML
+          test-results-format: 'JUnit'         # must be JUnit
+          test-run-title: "UiPath Tests"
+          fail-on-error: true
+          fail-on-empty: true
+          only-summary: false                  # set true if you just want summary in UI
+
+      # 10. Step: Upload JUnit XML as artifact for download
+      - name: Upload Test Results Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: UiPath-TestResults
+          path: TestResults/TestResults.xml
+
+
 
