@@ -204,7 +204,8 @@ jobs:
           
           # Get Folder ID
           Write-Host "Getting folder ID..."
-          $foldersUrl = "$env:ORCHESTRATOR_URL$env:Orch_ACC_NAME/$env:ORCHESTRATOR_TENANT/orchestrator_/odata/Folders?`$filter=DisplayName eq '$env:ORCHESTRATOR_FOLDER'"
+          $baseUrl = "$env:ORCHESTRATOR_URL$env:Orch_ACC_NAME/$env:ORCHESTRATOR_TENANT/orchestrator_"
+          $foldersUrl = "$baseUrl/odata/Folders?`$filter=DisplayName eq '$env:ORCHESTRATOR_FOLDER'"
           
           try {
               $folderResponse = Invoke-RestMethod -Uri $foldersUrl -Method Get -Headers $headers
@@ -223,14 +224,15 @@ jobs:
           
           # Get Test Set ID
           Write-Host "Getting test set..."
-          $testSetsUrl = "$env:ORCHESTRATOR_URL$env:Orch_ACC_NAME/$env:ORCHESTRATOR_TENANT/orchestrator_/odata/TestSets?`$filter=Name eq '$env:TEST_SET'"
+          $testSetsUrl = "$baseUrl/odata/TestSets?`$filter=Name eq '$env:TEST_SET'"
           
           try {
               $testSetResponse = Invoke-RestMethod -Uri $testSetsUrl -Method Get -Headers $headers
               if ($testSetResponse.value.Count -eq 0) {
                   Write-Error "✗ Test set '$env:TEST_SET' not found"
                   Write-Host "Available test sets:"
-                  $allTestSets = Invoke-RestMethod -Uri "$env:ORCHESTRATOR_URL$env:Orch_ACC_NAME/$env:ORCHESTRATOR_TENANT/orchestrator_/odata/TestSets" -Method Get -Headers $headers
+                  $allTestSetsUrl = "$baseUrl/odata/TestSets"
+                  $allTestSets = Invoke-RestMethod -Uri $allTestSetsUrl -Method Get -Headers $headers
                   $allTestSets.value | ForEach-Object { Write-Host "  - $($_.Name)" }
                   exit 1
               }
@@ -243,4 +245,79 @@ jobs:
           
           # Start Test Execution
           Write-Host "Starting test execution..."
-          $executeUrl = "$env:ORCHESTRATOR_URL$env:Orch_ACC_NAME/$env:ORCHESTRATOR_TENANT/orchestrator_/odata/TestSetExecutions/UiPath.Server.Configuration.O
+          $executeUrl = "$baseUrl/odata/TestSetExecutions/UiPath.Server.Configuration.OData.StartTestSetExecution"
+          
+          $executeBody = @{
+              testSetId = $testSetId
+          } | ConvertTo-Json
+          
+          try {
+              $executionResponse = Invoke-RestMethod -Uri $executeUrl -Method Post -Headers $headers -Body $executeBody
+              $executionId = $executionResponse.Id
+              Write-Host "✓ Test execution started (ID: $executionId)"
+          } catch {
+              $errorMsg = $_.Exception.Message
+              if ($_.ErrorDetails.Message) {
+                  $errorDetails = $_.ErrorDetails.Message | ConvertFrom-Json
+                  $errorMsg = $errorDetails.message
+              }
+              Write-Error "✗ Failed to start test: $errorMsg"
+              exit 1
+          }
+          
+          # Monitor test execution
+          Write-Host "========================================="
+          Write-Host "Monitoring test execution..."
+          Write-Host "========================================="
+          
+          $timeout = 1800
+          $elapsed = 0
+          $checkInterval = 15
+          
+          do {
+              Start-Sleep -Seconds $checkInterval
+              $elapsed += $checkInterval
+              
+              try {
+                  $statusUrl = "$baseUrl/odata/TestSetExecutions($executionId)"
+                  $status = Invoke-RestMethod -Uri $statusUrl -Method Get -Headers $headers
+                  
+                  $progress = if ($status.TestCaseCount -gt 0) { 
+                      "Passed: $($status.PassedTestCases), Failed: $($status.FailedTestCases), Total: $($status.TestCaseCount)" 
+                  } else { 
+                      "Initializing..." 
+                  }
+                  
+                  Write-Host "[$elapsed s] Status: $($status.Status) | $progress"
+                  
+                  if ($status.Status -eq "Passed") {
+                      Write-Host "========================================="
+                      Write-Host "✓ ALL TESTS PASSED"
+                      Write-Host "========================================="
+                      Write-Host "Passed: $($status.PassedTestCases)"
+                      Write-Host "Failed: $($status.FailedTestCases)"
+                      Write-Host "Total:  $($status.TestCaseCount)"
+                      exit 0
+                  }
+                  elseif ($status.Status -eq "Failed") {
+                      Write-Host "========================================="
+                      Write-Host "✗ TESTS FAILED"
+                      Write-Host "========================================="
+                      Write-Host "Passed: $($status.PassedTestCases)"
+                      Write-Host "Failed: $($status.FailedTestCases)"
+                      Write-Host "Total:  $($status.TestCaseCount)"
+                      exit 1
+                  }
+                  
+              } catch {
+                  Write-Warning "Failed to check status: $_"
+              }
+              
+          } while ($elapsed -lt $timeout -and $status.Status -notin @("Passed", "Failed", "Inconclusive"))
+          
+          if ($elapsed -ge $timeout) {
+              Write-Host "========================================="
+              Write-Host "✗ TEST EXECUTION TIMED OUT"
+              Write-Host "========================================="
+              exit 1
+          }
