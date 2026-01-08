@@ -10,7 +10,7 @@ env:
   ORCHESTRATOR_URL: https://staging.uipath.com/
   ORCHESTRATOR_TENANT: DefaultTenant
   ORCHESTRATOR_FOLDER: express
-  Orch_ACC_NAME: uipatcvdtryn
+  ORCH_ACCOUNT_NAME: uipatcvdtryn
   TEST_SET: Test_Set_TestDemoCli_Tests
   CLI_VERSION: 24.12.9166.24491
   CLI_URL: https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/flat2/uipath.cli.windows/24.12.9166.24491/uipath.cli.windows.24.12.9166.24491.nupkg
@@ -21,17 +21,19 @@ env:
 jobs:
   Build-Pack-Deploy-Test:
     runs-on: windows-latest
+
     steps:
-      # Checkout code
+      # 1. Checkout code
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # 2. Print working directory
       - name: Print Working Directory
         run: |
           pwd
           ls
 
-      # Download UiPath CLI
+      # 3. Download UiPath CLI
       - name: Download UiPath CLI
         shell: pwsh
         run: |
@@ -49,7 +51,7 @@ jobs:
               & $cliPath --version
           }
 
-      # PACK the automation project (Process package)
+      # 4. Pack Process Project
       - name: Pack Process Project
         shell: pwsh
         run: |
@@ -73,7 +75,7 @@ jobs:
               exit 1
           }
 
-      # PACK the test project (Test package)
+      # 5. Pack Test Project
       - name: Pack Test Project
         shell: pwsh
         run: |
@@ -97,7 +99,7 @@ jobs:
               Write-Warning "⚠ Test pack may have issues (this is ok if no tests exist)"
           }
 
-      # List all packages
+      # 6. List all packages
       - name: List Packages
         shell: pwsh
         run: |
@@ -106,7 +108,7 @@ jobs:
               Write-Host "  - $($_.Name)"
           }
 
-      # DEPLOY the process package
+      # 7. Deploy Process Package
       - name: Deploy Process Package to Orchestrator
         shell: pwsh
         run: |
@@ -123,7 +125,7 @@ jobs:
               "$($pkg.FullName)" `
               "$env:ORCHESTRATOR_URL" `
               "$env:ORCHESTRATOR_TENANT" `
-              -A "$env:Orch_ACC_NAME" `
+              -A "$env:ORCH_ACCOUNT_NAME" `
               -I "$env:ORCH_CLIENT_ID" `
               -S "$env:ORCH_SECRET" `
               --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
@@ -139,7 +141,7 @@ jobs:
               exit 1
           }
 
-      # DEPLOY the test package
+      # 8. Deploy Test Package
       - name: Deploy Test Package to Orchestrator
         shell: pwsh
         run: |
@@ -156,7 +158,7 @@ jobs:
               "$($testPkg.FullName)" `
               "$env:ORCHESTRATOR_URL" `
               "$env:ORCHESTRATOR_TENANT" `
-              -A "$env:Orch_ACC_NAME" `
+              -A "$env:ORCH_ACCOUNT_NAME" `
               -I "$env:ORCH_CLIENT_ID" `
               -S "$env:ORCH_SECRET" `
               --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
@@ -168,33 +170,33 @@ jobs:
               Write-Warning "⚠ Test package deploy had issues"
           }
 
-      # RUN TESTS via CLI from Orchestrator with JUnit output
-      - name: Run Test Set via CLI (Orchestrator)
+      # 9. Run Test Set via CLI
+      - name: Run Test Set
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          $resultDir = "$env:GITHUB_WORKSPACE\TestResults"
-          New-Item -ItemType Directory -Force -Path $resultDir | Out-Null
+          $testPkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*Tests*.nupkg" | Select-Object -First 1
+          
+          if (-not $testPkg) {
+              Write-Warning "⚠ No test package found to run"
+              exit 0
+          }
 
-          Write-Host "Running Test Set '$env:TEST_SET' from Orchestrator..."
-
+          Write-Host "Running Test Set: $env:TEST_SET"
           & $CLI test run `
-              "$env:ORCHESTRATOR_URL" `
-              "$env:ORCHESTRATOR_TENANT" `
-              -A "$env:Orch_ACC_NAME" `
-              -I "$env:ORCH_CLIENT_ID" `
-              -S "$env:ORCH_SECRET" `
-              --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
-              --identityUrl "https://staging.uipath.com/identity" `
-              --out junit `
-              --executionArtifactsDirectoryPath "$resultDir" `
-              --testSetName "$env:TEST_SET"
+              --orchestratorUrl "$env:ORCHESTRATOR_URL" `
+              --tenantName "$env:ORCHESTRATOR_TENANT" `
+              --folderName "$env:ORCHESTRATOR_FOLDER" `
+              --testSetName "$env:TEST_SET" `
+              --package "$($testPkg.FullName)" `
+              --out "$env:GITHUB_WORKSPACE\TestResults" `
+              --token "$env:ORCH_SECRET"
 
-      # Upload JUnit test results to GitHub
+      # 10. Publish JUnit Test Results
       - name: Publish Test Results
-        uses: actions/upload-test-results@v3
+        uses: microsoft/upload-test-results@v1
         with:
           test-results-files: 'TestResults/**/*.xml'
+          test-run-title: 'UiPath Tests'
           fail-on-error: true
-          fail-on-empty: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+          test-results-format: 'JUnit'
