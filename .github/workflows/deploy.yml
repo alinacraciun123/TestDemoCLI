@@ -58,12 +58,14 @@ jobs:
             --outputType Tests `
             --autoVersion
 
-      # ================= DEPLOY PACKAGES =================
+      # ================= DEPLOY PACKAGES (FIXED) =================
       - name: Deploy Packages to Orchestrator
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
           $packages = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg"
+
+          $scopes = "OR.Folders OR.BackgroundTasks OR.Execution OR.Assets OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Jobs OR.Monitoring OR.Robots OR.Machines OR.Settings OR.Users"
 
           foreach ($pkg in $packages) {
             Write-Host "Deploying $($pkg.Name)"
@@ -74,11 +76,12 @@ jobs:
               -A "$env:ORCH_ACCOUNT_NAME" `
               -I "$env:ORCH_CLIENT_ID" `
               -S "$env:ORCH_SECRET" `
+              --applicationScope "$scopes" `
               --organizationUnit "$env:ORCHESTRATOR_FOLDER"
           }
 
-      # ================= RUN TEST SET =================
-      - name: Run Test Set (Official UiPath CLI)
+      # ================= RUN TEST SET (JUNIT ENABLED) =================
+      - name: Run Test Set (JUnit)
         shell: pwsh
         run: |
           Write-Host "========================================="
@@ -91,15 +94,26 @@ jobs:
             -A "$env:ORCH_ACCOUNT_NAME" `
             -I "$env:ORCH_CLIENT_ID" `
             -S "$env:ORCH_SECRET" `
+            --applicationScope "OR.Folders OR.Execution OR.TestSets OR.TestSetExecutions" `
             --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
             --testSet "$env:TEST_SET" `
             --wait `
-            --resultPath "$env:GITHUB_WORKSPACE\TestResults"
+            --resultPath "$env:GITHUB_WORKSPACE\TestResults" `
+            --resultFormat junit
 
-      # ================= PUBLISH RESULTS =================
-      - name: Publish Test Results
+      # ================= PUBLISH RAW RESULTS =================
+      - name: Upload JUnit XML
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: UiPath-Test-Results
+          name: UiPath-JUnit-Results
           path: TestResults
+
+      # ================= GITHUB TESTS TAB =================
+      - name: Publish results to GitHub Tests tab
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: UiPath Test Results
+          path: TestResults/**/*.xml
+          reporter: java-junit
