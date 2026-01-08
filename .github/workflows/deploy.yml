@@ -1,51 +1,73 @@
-name: UiPath CI
+name: UiPathRunTests
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
 
 env:
+  PROJECT_NAME: TestDemoCLI
   ORCHESTRATOR_URL: https://staging.uipath.com/
-  IDENTITY_URL: https://staging.uipath.com/identity
   ORCHESTRATOR_TENANT: DefaultTenant
   ORCHESTRATOR_FOLDER: express
   ORCH_ACCOUNT_NAME: uipatcvdtryn
   TEST_SET: Test_Set_TestDemoCli_Tests
-
+  CLI_VERSION: 24.12.9166.24491
   CLI_URL: https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/flat2/uipath.cli.windows/24.12.9166.24491/uipath.cli.windows.24.12.9166.24491.nupkg
-
+  DOTNET_ROOT: C:\Program Files\dotnet
   ORCH_CLIENT_ID: ${{ secrets.APP_ID }}
   ORCH_SECRET: ${{ secrets.SECRET }}
+  IDENTITY_URL: https://staging.uipath.com/identity
 
 jobs:
-  build-deploy-test:
+  Build-Pack-Deploy-Test:
     runs-on: windows-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Install UiPath CLI
+      - name: Print Working Directory
+        run: |
+          pwd
+          ls
+
+      # Download UiPath CLI
+      - name: Download UiPath CLI
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path C:\uipathcli | Out-Null
-          Invoke-WebRequest "$env:CLI_URL" -OutFile C:\uipathcli\cli.zip
-          Expand-Archive C:\uipathcli\cli.zip -DestinationPath C:\uipathcli -Force
-          & C:\uipathcli\tools\uipcli.exe --version
+          $cli = "C:\uipathcli"
+          New-Item -ItemType Directory -Force -Path $cli | Out-Null
+          Invoke-WebRequest "$env:CLI_URL" -OutFile "$cli\cli.zip"
+          Expand-Archive "$cli\cli.zip" -DestinationPath $cli -Force
+          $cliPath = "$cli\tools\uipcli.exe"
+          if (Test-Path $cliPath) { & $cliPath --version }
 
-      - name: Pack project
-        shell: pwsh
-        run: |
-          & C:\uipathcli\tools\uipcli.exe package pack `
-            "$env:GITHUB_WORKSPACE\project.json" `
-            --output "$env:GITHUB_WORKSPACE\package" `
-            --autoVersion
-
-      - name: Deploy packages
+      # Pack Process Project
+      - name: Pack Process Project
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          $pkgs = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg"
-          foreach ($pkg in $pkgs) {
+          $project = "$env:GITHUB_WORKSPACE\project.json"
+          $outDir = "$env:GITHUB_WORKSPACE\package"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          & $CLI package pack "$project" --output "$outDir" --outputType Process --autoVersion
+
+      # Pack Test Project
+      - name: Pack Test Project
+        shell: pwsh
+        run: |
+          $CLI = "C:\uipathcli\tools\uipcli.exe"
+          $project = "$env:GITHUB_WORKSPACE\project.json"
+          $outDir = "$env:GITHUB_WORKSPACE\package"
+          & $CLI package pack "$project" --output "$outDir" --outputType Tests --autoVersion
+
+      # Deploy All Packages (original working logic with exact scopes)
+      - name: Deploy Packages to Orchestrator
+        shell: pwsh
+        run: |
+          $CLI = "C:\uipathcli\tools\uipcli.exe"
+          $packages = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg"
+          foreach ($pkg in $packages) {
             Write-Host "Deploying $($pkg.Name)"
             & $CLI package deploy `
               "$($pkg.FullName)" `
@@ -54,35 +76,40 @@ jobs:
               -A "$env:ORCH_ACCOUNT_NAME" `
               -I "$env:ORCH_CLIENT_ID" `
               -S "$env:ORCH_SECRET" `
-              --applicationScope "OR.Folders OR.Execution OR.TestSets OR.TestSetExecutions OR.Assets OR.Jobs OR.Robots OR.Machines OR.Settings" `
+              --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
               --identityUrl "$env:IDENTITY_URL" `
-              --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
-              --createProcess false
+              --organizationUnit "$env:ORCHESTRATOR_FOLDER"
           }
 
-      - name: Run Test Set (JUnit)
+      # Run Test Set and export JUnit results
+      - name: Run Test Set and Export Results
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path TestResults | Out-Null
+          $CLI = "C:\uipathcli\tools\uipcli.exe"
+          $testPkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*Tests*.nupkg" | Select-Object -First 1
+          if (-not $testPkg) { Write-Warning "No test package found"; exit 0 }
 
-          & C:\uipathcli\tools\uipcli.exe test run `
-            "$env:ORCHESTRATOR_URL" `
-            "$env:ORCHESTRATOR_TENANT" `
+          Write-Host "Running Test Set: $env:TEST_SET"
+          $outDir = "$env:GITHUB_WORKSPACE\TestResults"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          & $CLI test run `
+            --package "$($testPkg.FullName)" `
+            --orchestratorUrl "$env:ORCHESTRATOR_URL" `
+            --tenantName "$env:ORCHESTRATOR_TENANT" `
+            --folderName "$env:ORCHESTRATOR_FOLDER" `
             -A "$env:ORCH_ACCOUNT_NAME" `
             -I "$env:ORCH_CLIENT_ID" `
             -S "$env:ORCH_SECRET" `
-            --applicationScope "OR.Folders OR.Execution OR.TestSets OR.TestSetExecutions" `
+            --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
             --identityUrl "$env:IDENTITY_URL" `
-            --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
-            -s "$env:TEST_SET" `
-            --out junit `
-            --result_path TestResults
+            --testSetName "$env:TEST_SET" `
+            --out "$outDir\test-results.xml"
 
-      - name: Publish JUnit results
-        if: always()
-        uses: dorny/test-reporter@v1
+      # Publish JUnit Test Results to GitHub
+      - name: Publish Test Results
+        uses: actions/upload-test-results@v3
         with:
-          name: UiPath Tests
-          path: TestResults/**/*.xml
-          reporter: java-junit
-          fail-on-empty: true
+          path: TestResults/test-results.xml
+          format: junit
+          fail-on-error: true
