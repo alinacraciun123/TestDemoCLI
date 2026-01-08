@@ -1,4 +1,4 @@
-name: UiPath CI - Build Deploy Test
+name: UiPath CI
 
 on:
   push:
@@ -23,69 +23,67 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install UiPath CLI
         shell: pwsh
         run: |
-          $path = "C:\uipathcli"
-          New-Item -ItemType Directory -Force -Path $path | Out-Null
-          Invoke-WebRequest "$env:CLI_URL" -OutFile "$path\cli.zip"
-          Expand-Archive "$path\cli.zip" -DestinationPath $path -Force
-          & "$path\tools\uipcli.exe" --version
+          New-Item -ItemType Directory -Force -Path C:\uipathcli | Out-Null
+          Invoke-WebRequest "$env:CLI_URL" -OutFile C:\uipathcli\cli.zip
+          Expand-Archive C:\uipathcli\cli.zip -DestinationPath C:\uipathcli -Force
+          & C:\uipathcli\tools\uipcli.exe --version
 
-      - name: Pack Process
+      - name: Pack
         shell: pwsh
         run: |
-          & "C:\uipathcli\tools\uipcli.exe" package pack `
+          & C:\uipathcli\tools\uipcli.exe package pack `
             "$env:GITHUB_WORKSPACE\project.json" `
             --output "$env:GITHUB_WORKSPACE\package" `
-            --outputType Process `
             --autoVersion
 
-      - name: Pack Tests
-        shell: pwsh
-        run: |
-          & "C:\uipathcli\tools\uipcli.exe" package pack `
-            "$env:GITHUB_WORKSPACE\project.json" `
-            --output "$env:GITHUB_WORKSPACE\package" `
-            --outputType Tests `
-            --autoVersion
-
-      - name: Deploy Process Package
+      - name: Deploy packages
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
+          $pkgs = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg"
 
-          $processPkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg" |
-            Where-Object { $_.Name -notlike "*Tests*" } |
-            Select-Object -First 1
+          foreach ($pkg in $pkgs) {
+            Write-Host "Deploying $($pkg.Name)"
 
-          & $CLI package deploy `
-            "$($processPkg.FullName)" `
+            & $CLI package deploy `
+              "$($pkg.FullName)" `
+              "$env:ORCHESTRATOR_URL" `
+              "$env:ORCHESTRATOR_TENANT" `
+              -A "$env:ORCH_ACCOUNT_NAME" `
+              -I "$env:ORCH_CLIENT_ID" `
+              -S "$env:ORCH_SECRET" `
+              --applicationScope "OR.Folders OR.BackgroundTasks OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Settings.Read OR.Robots.Read OR.Machines.Read OR.Execution OR.Assets OR.Users.Read OR.Jobs OR.Monitoring" `
+              --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
+              --createProcess false
+          }
+
+      - name: Run Test Set (JUnit)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path TestResults | Out-Null
+
+          & C:\uipathcli\tools\uipcli.exe test run `
             "$env:ORCHESTRATOR_URL" `
             "$env:ORCHESTRATOR_TENANT" `
             -A "$env:ORCH_ACCOUNT_NAME" `
             -I "$env:ORCH_CLIENT_ID" `
             -S "$env:ORCH_SECRET" `
-            --applicationScope "OR.Folders OR.Execution OR.Assets OR.Jobs OR.Robots OR.Machines OR.Settings" `
+            --applicationScope "OR.Folders OR.Execution OR.TestSets OR.TestSetExecutions" `
             --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
-            --createProcess false
+            --testSet "$env:TEST_SET" `
+            --wait `
+            --resultPath TestResults `
+            --resultFormat junit
 
-      - name: Deploy Test Package
-        shell: pwsh
-        run: |
-          $CLI = "C:\uipathcli\tools\uipcli.exe"
-
-          $testPkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*Tests*.nupkg" |
-            Select-Object -First 1
-
-          & $CLI package deploy `
-            "$($testPkg.FullName)" `
-            "$env:ORCHESTRATOR_URL" `
-            "$env:ORCHESTRATOR_TENANT" `
-            -A "$env:ORCH_ACCOUNT_NAME" `
-            -I "$env:ORCH_CLIENT_ID" `
-            -S "$env:ORCH_SECRET" `
-            --applica
+      - name: Publish JUnit results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: UiPath Tests
+          path: TestResults/**/*.xml
+          reporter: java-junit
