@@ -169,6 +169,7 @@ jobs:
           }
           
       # RUN TESTS via Orchestrator API
+      # RUN TESTS via Orchestrator API
       - name: Run Test Set
         shell: pwsh
         run: |
@@ -222,8 +223,8 @@ jobs:
           
           $headers["X-UIPATH-OrganizationUnitId"] = $folderId
           
-          # Get Test Set ID
-          Write-Host "Getting test set..."
+          # Get Test Set details
+          Write-Host "Getting test set details..."
           $testSetsUrl = "$baseUrl/odata/TestSets?`$filter=Name eq '$env:TEST_SET'"
           
           try {
@@ -236,20 +237,24 @@ jobs:
                   $allTestSets.value | ForEach-Object { Write-Host "  - $($_.Name)" }
                   exit 1
               }
-              $testSetId = $testSetResponse.value[0].Id
+              $testSet = $testSetResponse.value[0]
+              $testSetId = $testSet.Id
               Write-Host "✓ Test Set ID: $testSetId"
+              Write-Host "  Test Set Name: $($testSet.Name)"
           } catch {
               Write-Error "✗ Failed to get test set: $_"
               exit 1
           }
           
-          # Start Test Execution
+          # Start Test Execution using POST with query parameters
           Write-Host "Starting test execution..."
-          $executeUrl = "$baseUrl/odata/TestSetExecutions/UiPath.Server.Configuration.OData.StartTestSetExecution"
+          $executeUrl = "$baseUrl/odata/TestSetExecutions"
           
           $executeBody = @{
-              testSetId = $testSetId
+              TestSetId = $testSetId
           } | ConvertTo-Json
+          
+          Write-Host "Executing URL: $executeUrl"
           
           try {
               $executionResponse = Invoke-RestMethod -Uri $executeUrl -Method Post -Headers $headers -Body $executeBody
@@ -257,10 +262,20 @@ jobs:
               Write-Host "✓ Test execution started (ID: $executionId)"
           } catch {
               $errorMsg = $_.Exception.Message
+              $statusCode = $_.Exception.Response.StatusCode.value__
+              
+              Write-Host "Status Code: $statusCode"
+              
               if ($_.ErrorDetails.Message) {
-                  $errorDetails = $_.ErrorDetails.Message | ConvertFrom-Json
-                  $errorMsg = $errorDetails.message
+                  try {
+                      $errorDetails = $_.ErrorDetails.Message | ConvertFrom-Json
+                      $errorMsg = $errorDetails.message
+                      Write-Host "Error: $errorMsg"
+                  } catch {
+                      Write-Host "Error Details: $($_.ErrorDetails.Message)"
+                  }
               }
+              
               Write-Error "✗ Failed to start test: $errorMsg"
               exit 1
           }
@@ -321,3 +336,4 @@ jobs:
               Write-Host "========================================="
               exit 1
           }
+
