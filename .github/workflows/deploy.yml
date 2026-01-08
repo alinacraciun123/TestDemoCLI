@@ -95,12 +95,10 @@ jobs:
             --result_path "$env:GITHUB_WORKSPACE\TestResults"
 
       # 8. Publish JUnit results
-      - name: Publish Test Results
-        uses: microsoft/upload-test-results@v1
+      - name: Publish JUnit Test Results
+        uses: EnricoMi/publish-unit-test-result-action/windows@v2
+        if: always()
         with:
-          files: TestResults/TestResults.xml
-          test-results-format: 'JUnit'
-          test-run-title: "UiPath Tests"
-          fail-on-error: true
-          fail-on-empty: true
+          files: TestResults/**/*.xml
+
 
