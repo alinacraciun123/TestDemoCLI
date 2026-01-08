@@ -10,330 +10,96 @@ env:
   ORCHESTRATOR_URL: https://staging.uipath.com/
   ORCHESTRATOR_TENANT: DefaultTenant
   ORCHESTRATOR_FOLDER: express
-  Orch_ACC_NAME: uipatcvdtryn
+  ORCH_ACCOUNT_NAME: uipatcvdtryn
   TEST_SET: Test_Set_TestDemoCli_Tests
+
   CLI_VERSION: 24.12.9166.24491
   CLI_URL: https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/flat2/uipath.cli.windows/24.12.9166.24491/uipath.cli.windows.24.12.9166.24491.nupkg
-  DOTNET_ROOT: C:\Program Files\dotnet
+
   ORCH_CLIENT_ID: ${{ secrets.APP_ID }}
   ORCH_SECRET: ${{ secrets.SECRET }}
-  
+
 jobs:
   Build-Pack-Deploy-Test:
     runs-on: windows-latest
+
     steps:
-      # Checkout code
+      # ================= CHECKOUT =================
       - name: Checkout Code
         uses: actions/checkout@v4
-        
-      - name: Print Working Directory
-        run: |
-          pwd
-          ls
-          
-      # Download UiPath CLI
-      - name: Download UiPath CLI
+
+      # ================= INSTALL UIPCLI =================
+      - name: Install UiPath CLI
         shell: pwsh
         run: |
-          $cli = "C:\uipathcli"
-          New-Item -ItemType Directory -Force -Path $cli | Out-Null
-          Write-Host "Downloading UiPath CLI from $env:CLI_URL ..."
-          Invoke-WebRequest "$env:CLI_URL" -OutFile "$cli\cli.zip"
-          Expand-Archive "$cli\cli.zip" -DestinationPath $cli -Force
-          Write-Host "CLI extracted to: $cli"
-          
-          # Verify CLI
-          $cliPath = "$cli\tools\uipcli.exe"
-          if (Test-Path $cliPath) {
-              Write-Host "✓ CLI installed successfully"
-              & $cliPath --version
-          }
-          
-      # PACK the automation project (Process package)
+          $cliRoot = "C:\uipathcli"
+          New-Item -ItemType Directory -Force -Path $cliRoot | Out-Null
+          Invoke-WebRequest "$env:CLI_URL" -OutFile "$cliRoot\cli.zip"
+          Expand-Archive "$cliRoot\cli.zip" -DestinationPath $cliRoot -Force
+          & "$cliRoot\tools\uipcli.exe" --version
+
+      # ================= PACK PROCESS =================
       - name: Pack Process Project
         shell: pwsh
         run: |
-          $CLI = "C:\uipathcli\tools\uipcli.exe"
-          $project = "$env:GITHUB_WORKSPACE\project.json"
-          $outDir = "$env:GITHUB_WORKSPACE\package"
-          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-          
-          Write-Host "Packing process project..."
-          & $CLI package pack `
-              "$project" `
-              --output "$outDir" `
-              --outputType Process `
-              --autoVersion
-              
-          if ($LASTEXITCODE -eq 0) {
-              $pkg = Get-ChildItem "$outDir\*.nupkg" | Select-Object -First 1
-              Write-Host "✓ Process package created: $($pkg.Name)"
-          } else {
-              Write-Error "✗ Pack failed"
-              exit 1
-          }
-          
-      # PACK the test project (Test package)
+          & "C:\uipathcli\tools\uipcli.exe" package pack `
+            "$env:GITHUB_WORKSPACE\project.json" `
+            --output "$env:GITHUB_WORKSPACE\package" `
+            --outputType Process `
+            --autoVersion
+
+      # ================= PACK TESTS =================
       - name: Pack Test Project
         shell: pwsh
         run: |
-          $CLI = "C:\uipathcli\tools\uipcli.exe"
-          $project = "$env:GITHUB_WORKSPACE\project.json"
-          $outDir = "$env:GITHUB_WORKSPACE\package"
-          
-          Write-Host "Packing test project..."
-          & $CLI package pack `
-              "$project" `
-              --output "$outDir" `
-              --outputType Tests `
-              --autoVersion
-              
-          if ($LASTEXITCODE -eq 0) {
-              $testPkgs = Get-ChildItem "$outDir\*Tests*.nupkg"
-              if ($testPkgs) {
-                  Write-Host "✓ Test package created: $($testPkgs[0].Name)"
-              }
-          } else {
-              Write-Warning "⚠ Test pack may have issues (this is ok if no tests exist)"
-          }
-          
-      # List all packages
-      - name: List Packages
-        shell: pwsh
-        run: |
-          Write-Host "Packages created:"
-          Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg" | ForEach-Object {
-              Write-Host "  - $($_.Name)"
-          }
-          
-      # DEPLOY the process package
-      - name: Deploy Process Package to Orchestrator
+          & "C:\uipathcli\tools\uipcli.exe" package pack `
+            "$env:GITHUB_WORKSPACE\project.json" `
+            --output "$env:GITHUB_WORKSPACE\package" `
+            --outputType Tests `
+            --autoVersion
+
+      # ================= DEPLOY PACKAGES =================
+      - name: Deploy Packages to Orchestrator
         shell: pwsh
         run: |
           $CLI = "C:\uipathcli\tools\uipcli.exe"
-          $pkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg" | Where-Object { $_.Name -notlike "*Tests*" } | Select-Object -First 1
-          
-          if (-not $pkg) {
-              Write-Error "✗ No process package found"
-              exit 1
-          }
-          
-          Write-Host "Deploying process package: $($pkg.FullName)"
-          & $CLI package deploy `
+          $packages = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*.nupkg"
+
+          foreach ($pkg in $packages) {
+            Write-Host "Deploying $($pkg.Name)"
+            & $CLI package deploy `
               "$($pkg.FullName)" `
               "$env:ORCHESTRATOR_URL" `
               "$env:ORCHESTRATOR_TENANT" `
-              -A "$env:Orch_ACC_NAME" `
+              -A "$env:ORCH_ACCOUNT_NAME" `
               -I "$env:ORCH_CLIENT_ID" `
               -S "$env:ORCH_SECRET" `
-              --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
-              --processName "TestDemoCli" `
-              --createProcess true `
-              --entryPointsPath "Main.xaml" `
               --organizationUnit "$env:ORCHESTRATOR_FOLDER"
-              
-          if ($LASTEXITCODE -eq 0) {
-              Write-Host "✓ Process package deployed successfully"
-          } else {
-              Write-Error "✗ Deploy failed"
-              exit 1
           }
-          
-      # DEPLOY the test package
-      - name: Deploy Test Package to Orchestrator
-        shell: pwsh
-        run: |
-          $CLI = "C:\uipathcli\tools\uipcli.exe"
-          $testPkg = Get-ChildItem "$env:GITHUB_WORKSPACE\package\*Tests*.nupkg" | Select-Object -First 1
-          
-          if (-not $testPkg) {
-              Write-Warning "⚠ No test package found to deploy"
-              exit 0
-          }
-          
-          Write-Host "Deploying test package: $($testPkg.FullName)"
-          & $CLI package deploy `
-              "$($testPkg.FullName)" `
-              "$env:ORCHESTRATOR_URL" `
-              "$env:ORCHESTRATOR_TENANT" `
-              -A "$env:Orch_ACC_NAME" `
-              -I "$env:ORCH_CLIENT_ID" `
-              -S "$env:ORCH_SECRET" `
-              --applicationScope "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines OR.Monitoring OR.Robots OR.Settings OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users" `
-              --organizationUnit "$env:ORCHESTRATOR_FOLDER"
-              
-          if ($LASTEXITCODE -eq 0) {
-              Write-Host "✓ Test package deployed successfully"
-          } else {
-              Write-Warning "⚠ Test package deploy had issues"
-          }
-          
-      # RUN TESTS via Orchestrator API
-      # RUN TESTS via Orchestrator API
-      - name: Run Test Set
+
+      # ================= RUN TEST SET =================
+      - name: Run Test Set (Official UiPath CLI)
         shell: pwsh
         run: |
           Write-Host "========================================="
           Write-Host "Running Test Set: $env:TEST_SET"
           Write-Host "========================================="
-          
-          # Get OAuth token
-          Write-Host "Getting authentication token..."
-          $authBody = @{
-              grant_type = "client_credentials"
-              client_id = $env:ORCH_CLIENT_ID
-              client_secret = $env:ORCH_SECRET
-              scope = "OR.TestSetExecutions OR.TestSets OR.Execution OR.Folders OR.Robots OR.Machines"
-          }
-          
-          $identityUrl = "https://staging.uipath.com/identity_/connect/token"
-          
-          try {
-              $tokenResponse = Invoke-RestMethod -Uri $identityUrl -Method Post -Body $authBody -ContentType "application/x-www-form-urlencoded"
-              $token = $tokenResponse.access_token
-              Write-Host "✓ Token obtained"
-          } catch {
-              Write-Error "✗ Failed to get token: $_"
-              exit 1
-          }
-          
-          # Setup headers
-          $headers = @{
-              Authorization = "Bearer $token"
-              "Content-Type" = "application/json"
-          }
-          
-          # Get Folder ID
-          Write-Host "Getting folder ID..."
-          $baseUrl = "$env:ORCHESTRATOR_URL$env:Orch_ACC_NAME/$env:ORCHESTRATOR_TENANT/orchestrator_"
-          $foldersUrl = "$baseUrl/odata/Folders?`$filter=DisplayName eq '$env:ORCHESTRATOR_FOLDER'"
-          
-          try {
-              $folderResponse = Invoke-RestMethod -Uri $foldersUrl -Method Get -Headers $headers
-              if ($folderResponse.value.Count -eq 0) {
-                  Write-Error "✗ Folder not found"
-                  exit 1
-              }
-              $folderId = $folderResponse.value[0].Id
-              Write-Host "✓ Folder ID: $folderId"
-          } catch {
-              Write-Error "✗ Failed to get folder: $_"
-              exit 1
-          }
-          
-          $headers["X-UIPATH-OrganizationUnitId"] = $folderId
-          
-          # Get Test Set details
-          Write-Host "Getting test set details..."
-          $testSetsUrl = "$baseUrl/odata/TestSets?`$filter=Name eq '$env:TEST_SET'"
-          
-          try {
-              $testSetResponse = Invoke-RestMethod -Uri $testSetsUrl -Method Get -Headers $headers
-              if ($testSetResponse.value.Count -eq 0) {
-                  Write-Error "✗ Test set '$env:TEST_SET' not found"
-                  Write-Host "Available test sets:"
-                  $allTestSetsUrl = "$baseUrl/odata/TestSets"
-                  $allTestSets = Invoke-RestMethod -Uri $allTestSetsUrl -Method Get -Headers $headers
-                  $allTestSets.value | ForEach-Object { Write-Host "  - $($_.Name)" }
-                  exit 1
-              }
-              $testSet = $testSetResponse.value[0]
-              $testSetId = $testSet.Id
-              Write-Host "✓ Test Set ID: $testSetId"
-              Write-Host "  Test Set Name: $($testSet.Name)"
-          } catch {
-              Write-Error "✗ Failed to get test set: $_"
-              exit 1
-          }
-          
-          # Start Test Execution using POST with query parameters
-          Write-Host "Starting test execution..."
-          $executeUrl = "$baseUrl/odata/TestSetExecutions"
-          
-          $executeBody = @{
-              TestSetId = $testSetId
-          } | ConvertTo-Json
-          
-          Write-Host "Executing URL: $executeUrl"
-          
-          try {
-              $executionResponse = Invoke-RestMethod -Uri $executeUrl -Method Post -Headers $headers -Body $executeBody
-              $executionId = $executionResponse.Id
-              Write-Host "✓ Test execution started (ID: $executionId)"
-          } catch {
-              $errorMsg = $_.Exception.Message
-              $statusCode = $_.Exception.Response.StatusCode.value__
-              
-              Write-Host "Status Code: $statusCode"
-              
-              if ($_.ErrorDetails.Message) {
-                  try {
-                      $errorDetails = $_.ErrorDetails.Message | ConvertFrom-Json
-                      $errorMsg = $errorDetails.message
-                      Write-Host "Error: $errorMsg"
-                  } catch {
-                      Write-Host "Error Details: $($_.ErrorDetails.Message)"
-                  }
-              }
-              
-              Write-Error "✗ Failed to start test: $errorMsg"
-              exit 1
-          }
-          
-          # Monitor test execution
-          Write-Host "========================================="
-          Write-Host "Monitoring test execution..."
-          Write-Host "========================================="
-          
-          $timeout = 1800
-          $elapsed = 0
-          $checkInterval = 15
-          
-          do {
-              Start-Sleep -Seconds $checkInterval
-              $elapsed += $checkInterval
-              
-              try {
-                  $statusUrl = "$baseUrl/odata/TestSetExecutions($executionId)"
-                  $status = Invoke-RestMethod -Uri $statusUrl -Method Get -Headers $headers
-                  
-                  $progress = if ($status.TestCaseCount -gt 0) { 
-                      "Passed: $($status.PassedTestCases), Failed: $($status.FailedTestCases), Total: $($status.TestCaseCount)" 
-                  } else { 
-                      "Initializing..." 
-                  }
-                  
-                  Write-Host "[$elapsed s] Status: $($status.Status) | $progress"
-                  
-                  if ($status.Status -eq "Passed") {
-                      Write-Host "========================================="
-                      Write-Host "✓ ALL TESTS PASSED"
-                      Write-Host "========================================="
-                      Write-Host "Passed: $($status.PassedTestCases)"
-                      Write-Host "Failed: $($status.FailedTestCases)"
-                      Write-Host "Total:  $($status.TestCaseCount)"
-                      exit 0
-                  }
-                  elseif ($status.Status -eq "Failed") {
-                      Write-Host "========================================="
-                      Write-Host "✗ TESTS FAILED"
-                      Write-Host "========================================="
-                      Write-Host "Passed: $($status.PassedTestCases)"
-                      Write-Host "Failed: $($status.FailedTestCases)"
-                      Write-Host "Total:  $($status.TestCaseCount)"
-                      exit 1
-                  }
-                  
-              } catch {
-                  Write-Warning "Failed to check status: $_"
-              }
-              
-          } while ($elapsed -lt $timeout -and $status.Status -notin @("Passed", "Failed", "Inconclusive"))
-          
-          if ($elapsed -ge $timeout) {
-              Write-Host "========================================="
-              Write-Host "✗ TEST EXECUTION TIMED OUT"
-              Write-Host "========================================="
-              exit 1
-          }
 
+          & "C:\uipathcli\tools\uipcli.exe" test run `
+            "$env:ORCHESTRATOR_URL" `
+            "$env:ORCHESTRATOR_TENANT" `
+            -A "$env:ORCH_ACCOUNT_NAME" `
+            -I "$env:ORCH_CLIENT_ID" `
+            -S "$env:ORCH_SECRET" `
+            --organizationUnit "$env:ORCHESTRATOR_FOLDER" `
+            --testSet "$env:TEST_SET" `
+            --wait `
+            --resultPath "$env:GITHUB_WORKSPACE\TestResults"
+
+      # ================= PUBLISH RESULTS =================
+      - name: Publish Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: UiPath-Test-Results
+          path: TestResults
